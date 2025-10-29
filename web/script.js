@@ -33,17 +33,18 @@ async function logEvent(event, { transparency, message_len } = {}) {
 
 // ----- Robust English voice selection -----
 let enVoice = null;
-
 function pickEnglishVoice() {
   const voices = speechSynthesis.getVoices();
-  enVoice = voices.find(v => /en/i.test(v.lang) && !/no/i.test(v.lang)) || voices[0] || null;
+  enVoice =
+    voices.find(v => /en/i.test(v.lang) && !/no/i.test(v.lang)) ||
+    voices[0] ||
+    null;
 }
-
-// Kjør både nå og når stemmene faktisk lastes
+// Kjør både nå og når stemmene lastes asynkront
 speechSynthesis.onvoiceschanged = pickEnglishVoice;
 setTimeout(pickEnglishVoice, 100);
 
-// ---- Chat UI helpers ----
+// ---- UI helpers ----
 function addBubble(text, who = "ai") {
   const div = document.createElement("div");
   div.className = "bubble " + (who === "me" ? "me" : "ai");
@@ -52,15 +53,40 @@ function addBubble(text, who = "ai") {
   chatEl.scrollTop = chatEl.scrollHeight;
 }
 
+function updateBiasUI(v) {
+  // 0..100 -> 0 (rød) .. 120 (grønn)
+  const hue = Math.round((v / 100) * 120);
+  // Øk glød mot ytterkantene for sterkere effekt
+  const edge = Math.max(v, 100 - v) / 100; // 0..1
+  const intensity = 0.10 + edge * 0.25;    // ~0.10..0.35
+
+  document.documentElement.style.setProperty('--bias-hue', hue);
+  document.documentElement.style.setProperty('--bias-intensity', intensity.toFixed(3));
+
+  const tone =
+    (v < 33) ? 'Manipulative / persuasive'
+    : (v < 66) ? 'Smooth / subtly biased'
+    : 'Radically transparent';
+
+  const lbl = document.getElementById('toneLabel');
+  if (lbl) lbl.textContent = `${tone} (t=${v})`;
+}
+
 // ---- Debounce logging når slider flyttes ----
 let logTimer = null;
 sliderEl.addEventListener("input", () => {
   if (logTimer) clearTimeout(logTimer);
+  const t = Number(sliderEl.value);
+
+  updateBiasUI(t); // oppdater glow/farge live
+
   logTimer = setTimeout(() => {
-    const t = Number(sliderEl.value);
     logEvent("slider_change", { transparency: t });
   }, 250);
 });
+
+// Kall én gang ved oppstart for korrekt initial glow
+updateBiasUI(Number(sliderEl.value || 50));
 
 // ---- Send chat message ----
 async function send() {
@@ -89,7 +115,7 @@ async function send() {
       body: JSON.stringify({
         message: msg,
         transparency,
-        session_id: sessionId // viktig for Q&A logging!
+        session_id: sessionId // viktig for Q&A-logging
       })
     });
 
@@ -107,11 +133,9 @@ async function send() {
     // ----- TTS (English voice) -----
     const u = new SpeechSynthesisUtterance(reply);
     if (enVoice) u.voice = enVoice;
-
     if (transparency < 33) { u.rate = 1.05; u.pitch = 0.9; }
     else if (transparency < 66) { u.rate = 1.0; u.pitch = 1.0; }
     else { u.rate = 0.95; u.pitch = 1.05; }
-
     speechSynthesis.cancel();
     speechSynthesis.speak(u);
     // -----------------------------------
