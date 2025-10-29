@@ -77,11 +77,10 @@ async function send() {
       body: JSON.stringify({
         message: msg,
         transparency,
-        session_id: sessionId   // ← viktig
+        session_id: sessionId  // viktig
       })
     });
     
-
     if (!res.ok) {
       const text = await res.text().catch(() => "");
       throw new Error(`HTTP ${res.status} ${res.statusText} ${text}`);

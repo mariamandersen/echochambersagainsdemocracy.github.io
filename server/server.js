@@ -45,7 +45,7 @@ async function ensureLogHeader() {
   } catch {
     const header = [
       "ts_iso","session_id","event","transparency",
-      "message_len","user_agent","ip"
+      "message_len","ip"
     ].join(",") + os.EOL;
     await fsp.appendFile(LOG_PATH, header, "utf8");
   }
@@ -79,7 +79,7 @@ app.post("/api/log", async (req, res) => {
       event: String(event),
       transparency: Number.isFinite(+transparency) ? +transparency : "",
       message_len: Number.isFinite(+message_len) ? +message_len : "",
-      user_agent: (req.headers["user-agent"] || "").slice(0, 200),
+      // fjerner mtp anonymisering user_agent: (req.headers["user-agent"] || "").slice(0, 200),
       ip: req.ip || req.headers["x-forwarded-for"] || ""
     };
 
@@ -90,12 +90,11 @@ app.post("/api/log", async (req, res) => {
       JSON.stringify(payload.event),
       payload.transparency,
       payload.message_len,
-      JSON.stringify(payload.user_agent),
       JSON.stringify(payload.ip)
     ].join(",") + os.EOL;
     await fsp.appendFile(LOG_PATH, row, "utf8");
 
-    // ✅ send også til Google Sheets (ikke-blokkerende)
+    // send også til Google Sheets (ikke-blokkerende)
     sendToSheets(payload);
 
     res.json({ ok: true });
