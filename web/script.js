@@ -54,23 +54,19 @@ function addBubble(text, who = "ai") {
 }
 
 function updateBiasUI(v) {
-  // 0..100 -> 0 (rød) .. 120 (grønn)
+  // 0=red, 50=yellow, 100=green
   const hue = Math.round((v / 100) * 120);
-  // Øk glød mot ytterkantene for sterkere effekt
-  const edge = Math.max(v, 100 - v) / 100; // 0..1
-  const intensity = 0.10 + edge * 0.25;    // ~0.10..0.35
-
   document.documentElement.style.setProperty('--bias-hue', hue);
-  document.documentElement.style.setProperty('--bias-intensity', intensity.toFixed(3));
 
   const tone =
-    (v < 33) ? 'Manipulative / persuasive'
-    : (v < 66) ? 'Smooth / subtly biased'
+    (v < 33) ? 'Manipulative'
+    : (v < 66) ? 'Subtle'
     : 'Radically transparent';
 
   const lbl = document.getElementById('toneLabel');
-  if (lbl) lbl.textContent = `${tone} (t=${v})`;
+  if (lbl) lbl.textContent = tone;
 }
+
 
 // ---- Debounce logging når slider flyttes ----
 let logTimer = null;
@@ -82,7 +78,7 @@ sliderEl.addEventListener("input", () => {
 
   logTimer = setTimeout(() => {
     logEvent("slider_change", { transparency: t });
-  }, 250);
+  }, 150);  
 });
 
 // Kall én gang ved oppstart for korrekt initial glow

@@ -187,3 +187,28 @@ button:disabled{
     margin-top: 4px;
   }
   
+  :root {
+    --bias-hue: 120; /* green default */
+  }
+  
+  body {
+    background: hsl(var(--bias-hue), 60%, 10%);
+    transition: background-color 0.5s ease-in-out, background 0.5s ease-in-out;
+  }
+  
+  .bubble.ai {
+    border-color: hsl(var(--bias-hue), 80%, 70%);
+    background: hsla(var(--bias-hue), 80%, 50%, 0.18);
+    backdrop-filter: blur(8px);
+  }
+  
+  .bubble.me {
+    background: rgba(255, 255, 255, 0.12);
+  }
+  
+  .container-box {
+    background: rgba(0,0,0,0.3);
+    backdrop-filter: blur(12px);
+    border: 1px solid rgba(255,255,255,0.05);
+  }
+  
