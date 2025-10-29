@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="no">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Echo Chambers Against Democracy</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <div class="wrap">
+    <h1>Algorithm / Transparency Slider</h1>
+    <p class="hint">Ask questions and turn the slider to change the agents tone.</p>
+
+    <div class="card">
+      <label for="transparency">Transparency</label>
+      <input id="transparency" type="range" min="0" max="100" value="60" />
+      <div class="legend">
+        <span>Manipulating</span><span>→</span><span>Open/honest</span>
+      </div>
+
+      <div class="row">
+        <input id="input" type="text" placeholder="Still et spørsmål..." />
+        <button id="send">Send</button>
+      </div>
+
+      <div id="chat" class="chat"></div>
+      <div class="hint">Tip: change the slider between questions to feel the change in tone.</div>
+    </div>
+  </div>
+
+  <script src="script.js" defer></script>
+</body>
+</html>
