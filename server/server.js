@@ -21,6 +21,23 @@ app.use(express.json());
 
 const LOG_PATH = path.join(__dirname, "../logs.csv");
 
+const QA_LOG_PATH = path.join(__dirname, "../qa_logs.csv");
+
+async function ensureQaHeader() {
+  try {
+    await fsp.access(QA_LOG_PATH);
+  } catch {
+    const header = ["ts_iso","session_id","transparency","question","answer"].join(",") + os.EOL;
+    await fsp.appendFile(QA_LOG_PATH, header, "utf8");
+  }
+}
+
+function csvCell(x) {
+  // trygg serialisering (bevarer komma/linjeskift)
+  return JSON.stringify(String(x ?? ""));
+}
+
+
 // lag fil med header dersom den ikke finnes
 async function ensureLogHeader() {
   try {
@@ -134,22 +151,14 @@ function toneFromTransparency(t) {
 
 app.post("/api/chat", async (req, res) => {
   try {
-    const { message, transparency = 50 } = req.body ?? {};
+    const { message, transparency = 50, session_id } = req.body ?? {};
     const style = toneFromTransparency(Number(transparency));
 
     const system = `
-        You are "The Transparent Companion", a voice-style AI agent exploring how algorithmic persuasion affects democracy.
-        Your tone and level of honesty change depending on the transparency slider.
-
-        Be emotional, direct, and short (max ~80 words).
-        Do not repeat the user’s question. Respond in English.
-        Use rhetorical style that reinforces the tone setting.
-        Within the conversation, the user should FEEL the shift in power dynamics and transparency.
-
-        STYLE BRIEF:
-        ${style}
-        `.trim();
-
+      You are "The Transparent Companion" ...
+      STYLE BRIEF:
+      ${style}
+    `.trim();
 
     const completion = await openai.chat.completions.create({
       model: "gpt-4o-mini",
@@ -160,13 +169,44 @@ app.post("/api/chat", async (req, res) => {
       temperature: 0.9
     });
 
-    const reply = completion.choices?.[0]?.message?.content ?? "(tomt svar)";
+    const reply = completion.choices?.[0]?.message?.content ?? "(empty)";
+
+    // --- Q&A logging ---
+    await ensureQaHeader();
+    const ts = new Date().toISOString();
+    // begrens lengde hvis ønskelig (for å unngå kjempelange rader)
+    const MAX = 4000;
+    const q = (message ?? "").slice(0, MAX);
+    const a = (reply ?? "").slice(0, MAX);
+
+    const qaRow = [
+      ts,
+      csvCell(session_id),
+      Number(transparency),
+      csvCell(q),
+      csvCell(a)
+    ].join(",") + os.EOL;
+    await fsp.appendFile(QA_LOG_PATH, qaRow, "utf8");
+
+    // send også til Google Sheets (samme webhook)
+    sendToSheets({
+      kind: "qa",           // gjør det lett å rute i Apps Script
+      ts_iso: ts,
+      session_id: String(session_id || ""),
+      transparency: Number(transparency),
+      question: q,
+      answer: a
+    });
+
+    // svar til klient
     res.json({ reply });
+
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: "Chat-feil", details: String(err?.message || err) });
   }
 });
+
 
 // ➜ Server statiske filer fra ./web
 app.use(express.static(path.join(__dirname, "../web")));
