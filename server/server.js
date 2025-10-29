@@ -1,3 +1,7 @@
+import fs from "fs";
+import fsp from "fs/promises";
+import os from "os";
+
 import express from "express";
 import cors from "cors";
 import dotenv from "dotenv";
@@ -11,6 +15,60 @@ dotenv.config();
 const app = express();
 app.use(cors());
 app.use(express.json());
+
+const LOG_PATH = path.join(__dirname, "../logs.csv");
+
+// lag fil med header dersom den ikke finnes
+async function ensureLogHeader() {
+  try {
+    await fsp.access(LOG_PATH);
+  } catch {
+    const header = [
+      "ts_iso","session_id","event","transparency",
+      "message_len","user_agent","ip"
+    ].join(",") + os.EOL;
+    await fsp.appendFile(LOG_PATH, header, "utf8");
+  }
+}
+
+// Logging endpoint
+app.post("/api/log", async (req, res) => {
+  try {
+    const { session_id, event, transparency, message_len } = req.body ?? {};
+    if (!session_id || !event) return res.status(400).json({ ok: false, error: "missing fields" });
+
+    await ensureLogHeader();
+
+    const row = [
+      new Date().toISOString(),
+      JSON.stringify(String(session_id)),
+      JSON.stringify(String(event)),
+      Number.isFinite(+transparency) ? +transparency : "",
+      Number.isFinite(+message_len) ? +message_len : "",
+      JSON.stringify((req.headers["user-agent"] || "").slice(0,120)),
+      JSON.stringify(req.ip || req.headers["x-forwarded-for"] || "")
+    ].join(",") + os.EOL;
+
+    await fsp.appendFile(LOG_PATH, row, "utf8");
+    res.json({ ok: true });
+  } catch (e) {
+    console.error("Log error:", e);
+    res.status(500).json({ ok: false, error: "log-failed" });
+  }
+});
+
+// Route to download the logs as CSV
+app.get("/logs", async (_req, res) => {
+  try {
+    await ensureLogHeader();
+    res.setHeader("Content-Type", "text/csv; charset=utf-8");
+    res.setHeader("Content-Disposition", "attachment; filename=logs.csv");
+    fs.createReadStream(LOG_PATH).pipe(res);
+  } catch (e) {
+    res.status(500).send("failed to stream logs");
+  }
+});
+
 
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
