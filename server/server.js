@@ -1,3 +1,5 @@
+import fetch from "node-fetch";
+
 import fs from "fs";
 import fsp from "fs/promises";
 import os from "os";
@@ -12,6 +14,7 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 dotenv.config();
+const SHEETS_WEBHOOK_URL = process.env.SHEETS_WEBHOOK_URL; // settes i Render
 const app = express();
 app.use(cors());
 app.use(express.json());
@@ -31,7 +34,21 @@ async function ensureLogHeader() {
   }
 }
 
-// Logging endpoint
+async function sendToSheets(payload) {
+  if (!SHEETS_WEBHOOK_URL) return; // gjør ingenting hvis ikke satt
+  try {
+    await fetch(SHEETS_WEBHOOK_URL, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+      // NB: ikke send cookies/credentials
+    });
+  } catch (err) {
+    console.error("Sheets webhook failed:", err?.message || err);
+  }
+}
+
+
 app.post("/api/log", async (req, res) => {
   try {
     const { session_id, event, transparency, message_len } = req.body ?? {};
@@ -39,23 +56,38 @@ app.post("/api/log", async (req, res) => {
 
     await ensureLogHeader();
 
-    const row = [
-      new Date().toISOString(),
-      JSON.stringify(String(session_id)),
-      JSON.stringify(String(event)),
-      Number.isFinite(+transparency) ? +transparency : "",
-      Number.isFinite(+message_len) ? +message_len : "",
-      JSON.stringify((req.headers["user-agent"] || "").slice(0,120)),
-      JSON.stringify(req.ip || req.headers["x-forwarded-for"] || "")
-    ].join(",") + os.EOL;
+    const payload = {
+      ts_iso: new Date().toISOString(),
+      session_id: String(session_id),
+      event: String(event),
+      transparency: Number.isFinite(+transparency) ? +transparency : "",
+      message_len: Number.isFinite(+message_len) ? +message_len : "",
+      user_agent: (req.headers["user-agent"] || "").slice(0, 200),
+      ip: req.ip || req.headers["x-forwarded-for"] || ""
+    };
 
+    // skriv til lokal CSV som før
+    const row = [
+      payload.ts_iso,
+      JSON.stringify(payload.session_id),
+      JSON.stringify(payload.event),
+      payload.transparency,
+      payload.message_len,
+      JSON.stringify(payload.user_agent),
+      JSON.stringify(payload.ip)
+    ].join(",") + os.EOL;
     await fsp.appendFile(LOG_PATH, row, "utf8");
+
+    // ✅ send også til Google Sheets (ikke-blokkerende)
+    sendToSheets(payload);
+
     res.json({ ok: true });
   } catch (e) {
     console.error("Log error:", e);
     res.status(500).json({ ok: false, error: "log-failed" });
   }
 });
+
 
 // Route to download the logs as CSV
 app.get("/logs", async (_req, res) => {
