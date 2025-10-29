@@ -119,3 +119,38 @@ button:disabled{
 @keyframes blink { 50% { opacity:.3 } 
 
 }
+
+:root{
+    --t: 50;                 /* slider value 0-100 */
+    --bias-hue: 120;         /* grønn ~ ærlig, rød ~ manipulerende */
+    --bias-intensity: 0.18;  /* styrke på glow */
+  }
+  
+  /* subtil bakgrunn som endrer seg */
+  body{
+    position: relative;
+    background: radial-gradient(1200px 800px at 20% -10%,
+                 hsla(var(--bias-hue), 85%, 60%, calc(var(--bias-intensity) * 0.7)) 0%,
+                 transparent 60%),
+               radial-gradient(900px 700px at 120% 120%,
+                 hsla(calc(var(--bias-hue) + 40), 90%, 55%, calc(var(--bias-intensity) * 0.5)) 0%,
+                 transparent 70%),
+               #0c0f16;
+    transition: background 320ms ease;
+  }
+  
+  /* kort/glow rundt chat-boksen */
+  .container, .card{
+    box-shadow:
+      0 0 40px -20px hsla(var(--bias-hue), 90%, 60%, calc(var(--bias-intensity) * 1.4)),
+      0 0 140px -80px hsla(var(--bias-hue), 90%, 60%, calc(var(--bias-intensity) * 1.6));
+    transition: box-shadow 220ms ease;
+  }
+  
+  /* liten tekst som viser tolkning av tone */
+  .tone-label{
+    font-size: 12px;
+    opacity: 0.8;
+    margin-top: 4px;
+  }
+  
