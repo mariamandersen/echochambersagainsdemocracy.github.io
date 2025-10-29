@@ -1,7 +1,4 @@
-// Fungerer både når du åpner via http://localhost:3001 og file://
-const API_BASE = (location.origin.startsWith('http') && location.hostname === 'localhost')
-  ? '' // same-origin, /api/chat
-  : 'http://localhost:3001'; // fallback for file://
+const API_BASE = "";
 
 const chatEl = document.getElementById("chat");
 const inputEl = document.getElementById("input");
