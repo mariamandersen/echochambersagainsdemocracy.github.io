@@ -28,6 +28,16 @@ async function send() {
 
   const transparency = Number(sliderEl.value);
 
+  // script.js – before fetch
+  const pending = document.createElement("div");
+  pending.className = "bubble ai";
+  pending.textContent = "…thinking";
+  chatEl.appendChild(pending);
+
+  // after you receive reply:
+  pending.remove();
+
+
   try {
     const res = await fetch(`${API_BASE}/api/chat`, {
       method: "POST",

@@ -103,3 +103,19 @@ button:disabled{
     background:#172033; 
     border:1px solid #2a3347; 
 }
+
+.bubble.ai { 
+    opacity: .95 
+}
+
+.bubble.ai::after { 
+    content:""; 
+    display:inline-block; 
+    width:6px; height:6px; 
+    margin-left:6px; 
+    border-radius:50%; 
+    animation: blink 1s infinite;
+    background:#9fb0c8; }
+@keyframes blink { 50% { opacity:.3 } 
+
+}
