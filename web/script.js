@@ -74,8 +74,13 @@ async function send() {
     const res = await fetch(`${API_BASE}/api/chat`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ message: msg, transparency })
+      body: JSON.stringify({
+        message: msg,
+        transparency,
+        session_id: sessionId   // ← viktig
+      })
     });
+    
 
     if (!res.ok) {
       const text = await res.text().catch(() => "");
