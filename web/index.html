@@ -18,6 +18,21 @@
         <span>Manipulating</span><span>→</span><span>Open/honest</span>
       </div>
 
+      <div class="row" style="gap:.5rem; align-items:center;">
+        <label for="voicePreset" style="min-width:72px;">Voice</label>
+        <select id="voicePreset">
+          <option value="transparent">Transparent (calm)</option>
+          <option value="anchor">News anchor</option>
+          <option value="influencer">Influencer / upbeat</option>
+          <option value="coach">Coach / encouraging</option>
+          <option value="bureaucrat">Bureaucrat / flat</option>
+          <option value="robot">Robot-ish</option>
+          <option value="whispery">Soft / whispery</option>
+        </select>
+        <button id="previewVoice" type="button">Preview</button>
+      </div>
+      
+
       <div class="row">
         <input id="input" type="text" placeholder="Ask a question..." />
         <button id="send">Send</button>

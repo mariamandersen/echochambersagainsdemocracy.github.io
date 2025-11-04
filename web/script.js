@@ -1,9 +1,14 @@
-const API_BASE = "";
+const API_BASE = (() => {
+  // keep it simple; same-origin for deployed site
+  return "";
+})();
 
-const chatEl = document.getElementById("chat");
-const inputEl = document.getElementById("input");
-const sendBtn = document.getElementById("send");
+const chatEl   = document.getElementById("chat");
+const inputEl  = document.getElementById("input");
+const sendBtn  = document.getElementById("send");
 const sliderEl = document.getElementById("transparency");
+const presetEl = document.getElementById("voicePreset");
+const previewBtn = document.getElementById("previewVoice");
 
 // ---- Session id for anonym logging ----
 const SID_KEY = "tc_session_id";
@@ -14,37 +19,36 @@ if (!sessionId) {
 }
 
 // ---- Logging helper ----
-async function logEvent(event, { transparency, message_len } = {}) {
+async function logEvent(event, payload = {}) {
   try {
     await fetch(`${API_BASE}/api/log`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        session_id: sessionId,
-        event,
-        transparency,
-        message_len
-      })
+      body: JSON.stringify({ session_id: sessionId, event, ...payload })
     });
-  } catch {
-    // Logging skal aldri knekke UI
+  } catch {}
+}
+
+// ----- Bias UI -----
+function updateBiasUI(v) {
+  const hue = Math.round((v / 100) * 120); // 0 red -> 120 green
+  document.documentElement.style.setProperty('--bias-hue', hue);
+  const lbl = document.getElementById('toneLabel');
+  if (lbl) {
+    lbl.textContent = (v < 33) ? 'Manipulative' : (v < 66) ? 'Subtle' : 'Radically transparent';
   }
 }
+updateBiasUI(Number(sliderEl?.value || 50));
 
-// ----- Robust English voice selection -----
-let enVoice = null;
-function pickEnglishVoice() {
-  const voices = speechSynthesis.getVoices();
-  enVoice =
-    voices.find(v => /en/i.test(v.lang) && !/no/i.test(v.lang)) ||
-    voices[0] ||
-    null;
-}
-// Kjør både nå og når stemmene lastes asynkront
-speechSynthesis.onvoiceschanged = pickEnglishVoice;
-setTimeout(pickEnglishVoice, 100);
+let logTimer = null;
+sliderEl?.addEventListener("input", () => {
+  const t = Number(sliderEl.value);
+  updateBiasUI(t);
+  if (logTimer) clearTimeout(logTimer);
+  logTimer = setTimeout(() => logEvent("slider_change", { transparency: t }), 150);
+});
 
-// ---- UI helpers ----
+// ---- Chat UI helpers ----
 function addBubble(text, who = "ai") {
   const div = document.createElement("div");
   div.className = "bubble " + (who === "me" ? "me" : "ai");
@@ -53,52 +57,108 @@ function addBubble(text, who = "ai") {
   chatEl.scrollTop = chatEl.scrollHeight;
 }
 
-function updateBiasUI(v) {
-  // 0=red, 50=yellow, 100=green
-  const hue = Math.round((v / 100) * 120);
-  document.documentElement.style.setProperty('--bias-hue', hue);
+// ---------------- TTS: Voices & Presets ----------------
 
-  const tone =
-    (v < 33) ? 'Manipulative'
-    : (v < 66) ? 'Subtle'
-    : 'Radically transparent';
+/**
+ * Persona presets = (voice match hints) + (prosody style).
+ * nameLike/lang are soft hints; we fall back gracefully.
+ */
+const VOICE_PRESETS = {
+  transparent: { nameLike: /(Samantha|Serena|Google US English)/i, lang: /en/i, rate: 0.98, pitch: 1.05, volume: 1.0 },
+  anchor:      { nameLike: /(Daniel|Alex|Google UK English Male|US English)/i, lang: /en/i, rate: 1.0,  pitch: 0.95, volume: 1.0 },
+  influencer:  { nameLike: /(Ava|Victoria|Google US English Female|Karen)/i,   lang: /en/i, rate: 1.12, pitch: 1.15, volume: 1.0 },
+  coach:       { nameLike: /(Alex|Daniel|Michael|Google US English)/i,         lang: /en/i, rate: 1.05, pitch: 1.00, volume: 1.0 },
+  bureaucrat:  { nameLike: /(Fred|Google UK English Male|Moira|Tessa)/i,       lang: /en/i, rate: 0.88, pitch: 0.85, volume: 1.0 },
+  robot:       { nameLike: /(Google English|UK English)/i,                     lang: /en/i, rate: 0.95, pitch: 0.80, volume: 1.0 },
+  whispery:    { nameLike: /(Ava|Serena|Google US English Female)/i,           lang: /en/i, rate: 0.90, pitch: 1.20, volume: 0.6 } // not true whisper, but soft
+};
 
-  const lbl = document.getElementById('toneLabel');
-  if (lbl) lbl.textContent = tone;
+let ALL_VOICES = [];
+function refreshVoices() { ALL_VOICES = speechSynthesis.getVoices() || []; }
+speechSynthesis.onvoiceschanged = refreshVoices;
+setTimeout(refreshVoices, 100);
+
+/** Try to pick a matching voice by preset hints; fallback to first English; else first available. */
+function findVoiceForPreset(presetKey) {
+  const hints = VOICE_PRESETS[presetKey] || VOICE_PRESETS.transparent;
+  const v = ALL_VOICES;
+
+  const byName = v.find(voice => hints.nameLike?.test(voice.name));
+  if (byName) return byName;
+
+  const byLang = v.find(voice => hints.lang?.test(voice.lang));
+  if (byLang) return byLang;
+
+  const anyEn  = v.find(voice => /en/i.test(voice.lang));
+  if (anyEn) return anyEn;
+
+  return v[0] || null;
 }
 
+/** Blend prosody slightly with transparency (more manipulative -> lower pitch & slightly faster). */
+function prosodyFor(presetKey, transparency) {
+  const base = { ...(VOICE_PRESETS[presetKey] || VOICE_PRESETS.transparent) };
+  const t = Math.max(0, Math.min(100, Number(transparency) || 50));
+  const manipFactor = (100 - t) / 100; // 1 at 0 (manip), 0 at 100 (transparent)
+  return {
+    rate:   +(base.rate   + (manipFactor * 0.06)).toFixed(2),
+    pitch:  +(base.pitch  - (manipFactor * 0.10)).toFixed(2),
+    volume: +(base.volume ?? 1.0)
+  };
+}
 
-// ---- Debounce logging når slider flyttes ----
-let logTimer = null;
-sliderEl.addEventListener("input", () => {
-  if (logTimer) clearTimeout(logTimer);
-  const t = Number(sliderEl.value);
+// Persist current preset
+const PRESET_KEY = "tc_voice_preset";
+let currentPreset = localStorage.getItem(PRESET_KEY) || "transparent";
+if (presetEl) presetEl.value = currentPreset;
 
-  updateBiasUI(t); // oppdater glow/farge live
-
-  logTimer = setTimeout(() => {
-    logEvent("slider_change", { transparency: t });
-  }, 150);  
+// Log & store when changed
+presetEl?.addEventListener("change", () => {
+  currentPreset = presetEl.value;
+  localStorage.setItem(PRESET_KEY, currentPreset);
+  logEvent("voice_change", { preset: currentPreset });
 });
 
-// Kall én gang ved oppstart for korrekt initial glow
-updateBiasUI(Number(sliderEl.value || 50));
+// Quick preview
+previewBtn?.addEventListener("click", () => {
+  const text = {
+    transparent: "I will state my assumptions and limits clearly.",
+    anchor:      "Good evening. Here are the facts as they stand.",
+    influencer:  "Okayyy, here’s the tea — let’s keep it super simple!",
+    coach:       "You’ve got this. Let’s take it one step at a time.",
+    bureaucrat:  "According to subsection twelve, paragraph five, that is not applicable.",
+    robot:       "Beep. Boop. This response is delivered efficiently.",
+    whispery:    "I’ll keep it quiet and gentle, so we can think together."
+  }[currentPreset] || "This is a voice preview.";
 
-// ---- Send chat message ----
+  speak(text, Number(sliderEl?.value || 50));
+});
+
+// Core TTS helper
+function speak(text, transparency) {
+  const voice = findVoiceForPreset(currentPreset);
+  const style = prosodyFor(currentPreset, transparency);
+  const u = new SpeechSynthesisUtterance(text);
+  if (voice) u.voice = voice;
+  u.rate = style.rate;
+  u.pitch = style.pitch;
+  u.volume = style.volume;
+  speechSynthesis.cancel();
+  speechSynthesis.speak(u);
+}
+
+// ---------------- Chat ----------------
 async function send() {
   const msg = inputEl.value.trim();
   if (!msg) return;
 
   const transparency = Number(sliderEl.value);
-
-  // Logg event (ikke innholdet)
-  logEvent("question_submitted", { transparency, message_len: msg.length });
+  logEvent("question_submitted", { transparency, message_len: msg.length, preset: currentPreset });
 
   addBubble(msg, "me");
   inputEl.value = "";
   sendBtn.disabled = true;
 
-  // "Thinking…" indikator
   const pending = document.createElement("div");
   pending.className = "bubble ai";
   pending.textContent = "…thinking";
@@ -111,7 +171,7 @@ async function send() {
       body: JSON.stringify({
         message: msg,
         transparency,
-        session_id: sessionId // viktig for Q&A-logging
+        session_id: sessionId
       })
     });
 
@@ -122,28 +182,18 @@ async function send() {
 
     const data = await res.json();
     const reply = data.reply || "(empty reply)";
-
     pending.remove();
     addBubble(reply, "ai");
 
-    // ----- TTS (English voice) -----
-    const u = new SpeechSynthesisUtterance(reply);
-    if (enVoice) u.voice = enVoice;
-    if (transparency < 33) { u.rate = 1.05; u.pitch = 0.9; }
-    else if (transparency < 66) { u.rate = 1.0; u.pitch = 1.0; }
-    else { u.rate = 0.95; u.pitch = 1.05; }
-    speechSynthesis.cancel();
-    speechSynthesis.speak(u);
-    // -----------------------------------
+    // Voice with persona
+    speak(reply, transparency);
 
-    logEvent("answer_ok", { transparency });
-
+    logEvent("answer_ok", { transparency, preset: currentPreset });
   } catch (e) {
     try { pending.remove(); } catch {}
     addBubble("Error: " + (e.message || e), "ai");
-    logEvent("answer_error", { transparency });
+    logEvent("answer_error", { transparency, preset: currentPreset });
     console.error(e);
-
   } finally {
     sendBtn.disabled = false;
     inputEl.focus();
@@ -151,7 +201,5 @@ async function send() {
 }
 
 // ---- Koble knapper + Enter ----
-if (sendBtn) sendBtn.addEventListener("click", send);
-if (inputEl) inputEl.addEventListener("keydown", (e) => {
-  if (e.key === "Enter") send();
-});
+sendBtn?.addEventListener("click", send);
+inputEl?.addEventListener("keydown", (e) => { if (e.key === "Enter") send(); });
