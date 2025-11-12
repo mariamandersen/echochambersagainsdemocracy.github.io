@@ -19,7 +19,7 @@ if (!sessionId) {
   localStorage.setItem(SID_KEY, sessionId);
 }
 
-// ---- Local audio “voices” (files you added under /web/sfx) ----
+// ---- Local audio “voices” (for PREVIEW only) ----
 const LOCAL_VOICES = {
   creepy:  "/sfx/creepy.mp3",
   yelling: "/sfx/yelling.mp3"
@@ -96,7 +96,7 @@ function addBubble(text, who = "ai") {
   chatEl.scrollTop = chatEl.scrollHeight;
 }
 
-// ---------------- TTS: Voices & Presets ----------------
+// ---------------- TTS: Voices & Presets (fallback path) ----------------
 const VOICE_PRESETS = {
   transparent: { nameLike: /(Samantha|Serena|Google US English)/i, lang: /en/i, rate: 0.98, pitch: 1.05, volume: 1.0 },
   anchor:      { nameLike: /(Daniel|Alex|Google UK English Male|US English)/i, lang: /en/i, rate: 1.00, pitch: 0.95, volume: 1.0 },
@@ -105,7 +105,7 @@ const VOICE_PRESETS = {
   bureaucrat:  { nameLike: /(Fred|Google UK English Male|Moira|Tessa)/i,       lang: /en/i, rate: 0.88, pitch: 0.85, volume: 1.0 },
   robot:       { nameLike: /(Google English|UK English)/i,                     lang: /en/i, rate: 0.95, pitch: 0.80, volume: 1.0 },
   whispery:    { nameLike: /(Ava|Serena|Google US English Female)/i,           lang: /en/i, rate: 0.90, pitch: 1.20, volume: 0.6 },
-  creepy:      { nameLike: /(Google US English|UK English|Daniel|Alex)/i,      lang: /en/i, rate: 0.92, pitch: 0.78, volume: 0.9 } // used for TTS *if* not local
+  creepy:      { nameLike: /(Google US English|UK English|Daniel|Alex)/i,      lang: /en/i, rate: 0.92, pitch: 0.78, volume: 0.9 }
 };
 
 let ALL_VOICES = [];
@@ -147,10 +147,9 @@ presetEl?.addEventListener("change", () => {
   logEvent("voice_change", { preset: currentPreset });
 });
 
-// --- Preview voice (keep MP3s only for preview) ---
+// --- Preview voice (local MP3s for creepy/yelling; TTS line otherwise) ---
 previewBtn?.addEventListener("click", () => {
   const t = Number(sliderEl?.value || 50);
-  // local mp3 if exists, else a short TTS line
   if (LOCAL_VOICES[currentPreset]) {
     playFile(LOCAL_VOICES[currentPreset], 0.9);
     return;
@@ -167,11 +166,7 @@ previewBtn?.addEventListener("click", () => {
   speak(demo, t, { preview: true });
 });
 
-
-// --- Speak the chatbot reply ---
-// - For replies, ALWAYS use TTS so it reads the actual text.
-// - Optionally layer a quiet effect under certain presets.
-// Simple convolver impulse (tiny room) for reverb
+// ---------- Web Audio FX helpers ----------
 function makeImpulse(ctx, seconds = 1.6, decay = 2.5) {
   const rate = ctx.sampleRate;
   const length = rate * seconds;
@@ -194,15 +189,17 @@ async function ensureFx() {
   if (!impulseBuf) impulseBuf = makeImpulse(fxCtx, 2.2, 3.0);
 }
 
-// Play processed TTS (OpenAI) for replies
+// --- Speak the chatbot reply ---
+// Replies use OpenAI TTS (via /api/tts_openai) so it speaks the real text.
+// For presets 'creepy' / 'yelling', we apply FX for character.
 async function speak(text, transparency, { preview = false } = {}) {
-  // PREVIEW: keep local mp3s as vibe-only
+  // PREVIEW: local mp3 vibe only (no TTS)
   if (preview) {
     const f = LOCAL_VOICES[currentPreset];
     if (f) { playFile(f, 0.9); return; }
   }
 
-  // For replies: fetch OpenAI TTS so we speak the actual text
+  // Get speech for actual text from your server proxy to OpenAI TTS
   let blob;
   try {
     const r = await fetch(`/api/tts_openai`, {
@@ -227,18 +224,16 @@ async function speak(text, transparency, { preview = false } = {}) {
     return;
   }
 
-  // Apply FX for creepy / yelling
   const applyFx = ["creepy", "yelling"].includes(currentPreset);
-
   if (!applyFx) {
-    // Just play the audio as-is
+    // No FX: play the TTS mp3 as-is
     const url = URL.createObjectURL(blob);
     const audio = new Audio(url);
     audio.play().catch(()=>{});
     return;
   }
 
-  // FX chain: pitch-ish (playbackRate), EQ, distortion, reverb
+  // === FX path for creepy / yelling ===
   await ensureFx();
   const arr = await blob.arrayBuffer();
   const buf = await fxCtx.decodeAudioData(arr);
@@ -246,58 +241,103 @@ async function speak(text, transparency, { preview = false } = {}) {
   const src = fxCtx.createBufferSource();
   src.buffer = buf;
 
-  // playbackRate ~ crude pitch shift:
-  // creepy => deeper/slower, yelling => faster/brighter
-  if (currentPreset === "creepy") src.playbackRate.value = 0.92;
-  if (currentPreset === "yelling") src.playbackRate.value = 1.08;
+  // Yelling: more energy; Creepy: slower/deeper
+  if (currentPreset === "creepy")  src.playbackRate.value = 0.92;
+  if (currentPreset === "yelling") src.playbackRate.value = 1.15;
 
-  // EQ
-  const low = fxCtx.createBiquadFilter();
-  low.type = "lowshelf";
-  low.frequency.value = 220;
-  low.gain.value = (currentPreset === "creepy") ? 6 : 2;
+  // Build chains
+  if (currentPreset === "yelling") {
+    // Aggressive chain: HP -> Presence -> HighShelf -> Distortion -> Reverb (low) -> Comp -> Limiter
+    const hp = fxCtx.createBiquadFilter();
+    hp.type = "highpass";
+    hp.frequency.value = 180;
+    hp.Q.value = 0.7;
 
-  const high = fxCtx.createBiquadFilter();
-  high.type = "highshelf";
-  high.frequency.value = 3800;
-  high.gain.value = (currentPreset === "yelling") ? 6 : -2;
+    const presence = fxCtx.createBiquadFilter();
+    presence.type = "peaking";
+    presence.frequency.value = 3200;
+    presence.Q.value = 1.2;
+    presence.gain.value = 9;
 
-  // subtle distortion for edge
-  const ws = fxCtx.createWaveShaper();
-  ws.curve = (() => {
-    const n = 256, curve = new Float32Array(n);
-    const k = (currentPreset === "yelling") ? 8 : 4;
-    for (let i = 0; i < n; i++) {
-      const x = (i / (n - 1)) * 2 - 1;
-      curve[i] = ((3 + k) * x * 20 * Math.PI / 180) / (Math.PI + k * Math.abs(x));
-    }
-    return curve;
-  })();
+    const high = fxCtx.createBiquadFilter();
+    high.type = "highshelf";
+    high.frequency.value = 6000;
+    high.gain.value = 8;
 
-  // Reverb
-  const conv = fxCtx.createConvolver();
-  conv.buffer = impulseBuf;
-  const wet = fxCtx.createGain();
-  wet.gain.value = (currentPreset === "creepy") ? 0.35 : 0.25;
+    const ws = fxCtx.createWaveShaper();
+    ws.curve = (() => {
+      const n = 512, curve = new Float32Array(n);
+      const k = 16;
+      for (let i = 0; i < n; i++) {
+        const x = (i / (n - 1)) * 2 - 1;
+        curve[i] = ((3 + k) * x * 20 * Math.PI / 180) / (Math.PI + k * Math.abs(x));
+      }
+      return curve;
+    })();
 
-  const dry = fxCtx.createGain();
-  dry.gain.value = 1.0;
+    const conv = fxCtx.createConvolver();
+    conv.buffer = impulseBuf;
+    const dry = fxCtx.createGain(); dry.gain.value = 1.0;
+    const wet = fxCtx.createGain(); wet.gain.value = 0.12;
 
-  const out = fxCtx.createGain();
-  out.gain.value = 0.95;
+    const comp = fxCtx.createDynamicsCompressor();
+    comp.threshold.value = -18; comp.knee.value = 6; comp.ratio.value = 6;
+    comp.attack.value = 0.003;  comp.release.value = 0.25;
 
-  // Wire graph
-  src.connect(low).connect(high).connect(ws);
-  ws.connect(dry);
-  ws.connect(conv).connect(wet);
+    const limiter = fxCtx.createDynamicsCompressor();
+    limiter.threshold.value = -1; limiter.knee.value = 0; limiter.ratio.value = 20;
+    limiter.attack.value = 0.001; limiter.release.value = 0.1;
 
-  dry.connect(out);
-  wet.connect(out);
-  out.connect(fxCtx.destination);
+    const out = fxCtx.createGain(); out.gain.value = 1.2;
 
-  src.start(0);
+    src.connect(hp).connect(presence).connect(high).connect(ws);
+    const mix = fxCtx.createGain();
+    ws.connect(dry); ws.connect(conv).connect(wet);
+    dry.connect(mix); wet.connect(mix);
+    mix.connect(comp).connect(limiter).connect(out).connect(fxCtx.destination);
+    src.start(0);
+    return;
+  }
+
+  if (currentPreset === "creepy") {
+    // Ominous chain: LowShelf boost + slight HighShelf cut + light distortion + more reverb
+    const low = fxCtx.createBiquadFilter();
+    low.type = "lowshelf";
+    low.frequency.value = 220;
+    low.gain.value = 6;
+
+    const high = fxCtx.createBiquadFilter();
+    high.type = "highshelf";
+    high.frequency.value = 3800;
+    high.gain.value = -2;
+
+    const ws = fxCtx.createWaveShaper();
+    ws.curve = (() => {
+      const n = 256, curve = new Float32Array(n);
+      const k = 4;
+      for (let i = 0; i < n; i++) {
+        const x = (i / (n - 1)) * 2 - 1;
+        curve[i] = ((3 + k) * x * 20 * Math.PI / 180) / (Math.PI + k * Math.abs(x));
+      }
+      return curve;
+    })();
+
+    const conv = fxCtx.createConvolver();
+    conv.buffer = impulseBuf;
+    const dry = fxCtx.createGain(); dry.gain.value = 1.0;
+    const wet = fxCtx.createGain(); wet.gain.value = 0.35;
+
+    const out = fxCtx.createGain(); out.gain.value = 0.95;
+
+    src.connect(low).connect(high).connect(ws);
+    const mix = fxCtx.createGain();
+    ws.connect(dry); ws.connect(conv).connect(wet);
+    dry.connect(mix); wet.connect(mix);
+    mix.connect(out).connect(fxCtx.destination);
+    src.start(0);
+    return;
+  }
 }
-
 
 // ---------------- Chat ----------------
 async function send() {
