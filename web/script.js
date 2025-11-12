@@ -147,11 +147,15 @@ presetEl?.addEventListener("change", () => {
   logEvent("voice_change", { preset: currentPreset });
 });
 
-// Preview voice (local file for creepy/yelling, TTS otherwise)
+// --- Preview voice (keep MP3s only for preview) ---
 previewBtn?.addEventListener("click", () => {
   const t = Number(sliderEl?.value || 50);
+
+  // If this preset has a local file, preview that file (no TTS)
   const file = LOCAL_VOICES[currentPreset];
-  if (file) { playFile(file); return; }
+  if (file) { playFile(file, 0.9); return; }
+
+  // Otherwise preview a short TTS line
   const demo = {
     transparent: "I will state my assumptions and limits clearly.",
     anchor: "Good evening. Here are the facts as they stand.",
@@ -161,17 +165,31 @@ previewBtn?.addEventListener("click", () => {
     robot: "Beep. Boop. This response is delivered efficiently.",
     whispery: "I’ll keep it quiet and gentle, so we can think together."
   }[currentPreset] || "This is a voice preview.";
-  speak(demo, t);
+
+  speak(demo, t, { preview: true });
 });
 
-// Speak: use local file for creepy/yelling, TTS otherwise
-function speak(text, transparency) {
-  const file = LOCAL_VOICES[currentPreset];
-  if (file) {
-    const vol = Math.max(0.25, transparency / 100);
-    playFile(file, vol);
-    return;
+// --- Speak the chatbot reply ---
+// - For replies, ALWAYS use TTS so it reads the actual text.
+// - Optionally layer a quiet effect under certain presets.
+function speak(text, transparency, { preview = false } = {}) {
+  // If this is just a preview and the preset has a file, play only the file.
+  if (preview) {
+    const f = LOCAL_VOICES[currentPreset];
+    if (f) { playFile(f, 0.9); return; }
   }
+
+  // Optional: layer a subtle effect UNDER the TTS during real replies.
+  // (Remove these two lines if you don’t want any effect under the voice.)
+  if (!preview && currentPreset === "creepy") {
+    // low volume bed so the text is still intelligible
+    playFile(LOCAL_VOICES.creepy, 0.18);
+  }
+  if (!preview && currentPreset === "yelling") {
+    playFile(LOCAL_VOICES.yelling, 0.15);
+  }
+
+  // TTS for the actual text
   const voice = findVoiceForPreset(currentPreset);
   const style = prosodyFor(currentPreset, transparency);
   const u = new SpeechSynthesisUtterance(text);
@@ -182,7 +200,6 @@ function speak(text, transparency) {
   speechSynthesis.cancel();
   speechSynthesis.speak(u);
 }
-
 // ---------------- Chat ----------------
 async function send() {
   const msg = inputEl.value.trim();
