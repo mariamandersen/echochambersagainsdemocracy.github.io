@@ -1,14 +1,15 @@
+// --- API base (same-origin on deployed site) ---
 const API_BASE = (() => {
-  // keep it simple; same-origin for deployed site
   return "";
 })();
 
-const chatEl   = document.getElementById("chat");
-const inputEl  = document.getElementById("input");
-const sendBtn  = document.getElementById("send");
-const sliderEl = document.getElementById("transparency");
-const presetEl = document.getElementById("voicePreset");
-const previewBtn = document.getElementById("previewVoice");
+// --- DOM ---
+const chatEl      = document.getElementById("chat");
+const inputEl     = document.getElementById("input");
+const sendBtn     = document.getElementById("send");
+const sliderEl    = document.getElementById("transparency");
+const presetEl    = document.getElementById("voicePreset");
+const previewBtn  = document.getElementById("previewVoice");
 
 // ---- Session id for anonym logging ----
 const SID_KEY = "tc_session_id";
@@ -26,24 +27,32 @@ async function logEvent(event, payload = {}) {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ session_id: sessionId, event, ...payload })
     });
-  } catch {}
+  } catch {
+    // never break UI on logging fail
+  }
 }
 
-// ----- Bias UI -----
+// ----- Bias UI (solid color background via CSS var) -----
 function updateBiasUI(v) {
   const hue = Math.round((v / 100) * 120); // 0 red -> 120 green
   document.documentElement.style.setProperty('--bias-hue', hue);
   const lbl = document.getElementById('toneLabel');
   if (lbl) {
-    lbl.textContent = (v < 33) ? 'Manipulative' : (v < 66) ? 'Subtle' : 'Radically transparent';
+    lbl.textContent = (v < 33) ? 'Manipulative'
+                     : (v < 66) ? 'Subtle'
+                     : 'Radically transparent';
   }
 }
+
+// init bias UI
 updateBiasUI(Number(sliderEl?.value || 50));
 
+// debounce log on slider, and update ambient volume (below)
 let logTimer = null;
 sliderEl?.addEventListener("input", () => {
   const t = Number(sliderEl.value);
   updateBiasUI(t);
+  setAmbientGain(ambientGainForTransparency(t));
   if (logTimer) clearTimeout(logTimer);
   logTimer = setTimeout(() => logEvent("slider_change", { transparency: t }), 150);
 });
@@ -61,24 +70,26 @@ function addBubble(text, who = "ai") {
 
 /**
  * Persona presets = (voice match hints) + (prosody style).
- * nameLike/lang are soft hints; we fall back gracefully.
+ * nameLike/lang are soft hints; fall back gracefully.
  */
 const VOICE_PRESETS = {
   transparent: { nameLike: /(Samantha|Serena|Google US English)/i, lang: /en/i, rate: 0.98, pitch: 1.05, volume: 1.0 },
-  anchor:      { nameLike: /(Daniel|Alex|Google UK English Male|US English)/i, lang: /en/i, rate: 1.0,  pitch: 0.95, volume: 1.0 },
+  anchor:      { nameLike: /(Daniel|Alex|Google UK English Male|US English)/i, lang: /en/i, rate: 1.00, pitch: 0.95, volume: 1.0 },
   influencer:  { nameLike: /(Ava|Victoria|Google US English Female|Karen)/i,   lang: /en/i, rate: 1.12, pitch: 1.15, volume: 1.0 },
   coach:       { nameLike: /(Alex|Daniel|Michael|Google US English)/i,         lang: /en/i, rate: 1.05, pitch: 1.00, volume: 1.0 },
   bureaucrat:  { nameLike: /(Fred|Google UK English Male|Moira|Tessa)/i,       lang: /en/i, rate: 0.88, pitch: 0.85, volume: 1.0 },
   robot:       { nameLike: /(Google English|UK English)/i,                     lang: /en/i, rate: 0.95, pitch: 0.80, volume: 1.0 },
-  whispery:    { nameLike: /(Ava|Serena|Google US English Female)/i,           lang: /en/i, rate: 0.90, pitch: 1.20, volume: 0.6 } // not true whisper, but soft
+  whispery:    { nameLike: /(Ava|Serena|Google US English Female)/i,           lang: /en/i, rate: 0.90, pitch: 1.20, volume: 0.6 }, // soft feel
+  creepy:      { nameLike: /(Google US English|UK English|Daniel|Alex)/i,      lang: /en/i, rate: 0.92, pitch: 0.78, volume: 0.9 }
 };
 
+// Robust voice list
 let ALL_VOICES = [];
 function refreshVoices() { ALL_VOICES = speechSynthesis.getVoices() || []; }
 speechSynthesis.onvoiceschanged = refreshVoices;
 setTimeout(refreshVoices, 100);
 
-/** Try to pick a matching voice by preset hints; fallback to first English; else first available. */
+// Choose a voice for a given preset
 function findVoiceForPreset(presetKey) {
   const hints = VOICE_PRESETS[presetKey] || VOICE_PRESETS.transparent;
   const v = ALL_VOICES;
@@ -95,7 +106,7 @@ function findVoiceForPreset(presetKey) {
   return v[0] || null;
 }
 
-/** Blend prosody slightly with transparency (more manipulative -> lower pitch & slightly faster). */
+/** Slightly blend prosody with transparency (more manipulative -> lower pitch & slightly faster). */
 function prosodyFor(presetKey, transparency) {
   const base = { ...(VOICE_PRESETS[presetKey] || VOICE_PRESETS.transparent) };
   const t = Math.max(0, Math.min(100, Number(transparency) || 50));
@@ -117,6 +128,7 @@ presetEl?.addEventListener("change", () => {
   currentPreset = presetEl.value;
   localStorage.setItem(PRESET_KEY, currentPreset);
   logEvent("voice_change", { preset: currentPreset });
+  maybeStartAmbient(); // update ambient loop when preset changes
 });
 
 // Quick preview
@@ -128,7 +140,8 @@ previewBtn?.addEventListener("click", () => {
     coach:       "You’ve got this. Let’s take it one step at a time.",
     bureaucrat:  "According to subsection twelve, paragraph five, that is not applicable.",
     robot:       "Beep. Boop. This response is delivered efficiently.",
-    whispery:    "I’ll keep it quiet and gentle, so we can think together."
+    whispery:    "I’ll keep it quiet and gentle, so we can think together.",
+    creepy:      "I can guide you… if you let me…"
   }[currentPreset] || "This is a voice preview.";
 
   speak(text, Number(sliderEl?.value || 50));
@@ -138,14 +151,115 @@ previewBtn?.addEventListener("click", () => {
 function speak(text, transparency) {
   const voice = findVoiceForPreset(currentPreset);
   const style = prosodyFor(currentPreset, transparency);
-  const u = new SpeechSynthesisUtterance(text);
+  const processed = (currentPreset === "creepy")
+    ? text.replace(/, /g, "… ").replace(/\./g, "…")
+    : text;
+
+  const u = new SpeechSynthesisUtterance(processed);
   if (voice) u.voice = voice;
-  u.rate = style.rate;
-  u.pitch = style.pitch;
+  u.rate   = style.rate;
+  u.pitch  = style.pitch;
   u.volume = style.volume;
   speechSynthesis.cancel();
   speechSynthesis.speak(u);
 }
+
+// -------- Soundscape manager (ambient + stinger) --------
+// Place audio files under /web/sfx/ :
+//   - sfx/creepy_ambience.mp3   (low drone)
+//   - sfx/neutral_ambience.mp3  (very subtle room tone)
+//   - sfx/creak_stinger.mp3     (quiet scrape)
+
+let audioCtx;
+let ambientSource = null;
+let ambientGain = null;
+let currentAmbientUrl = null;
+
+async function ensureAudio() {
+  if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+  if (audioCtx.state === "suspended") await audioCtx.resume();
+}
+
+async function playAmbient(url, gainValue = 0.15) {
+  try {
+    if (!url) { stopAmbient(); return; }
+    await ensureAudio();
+    if (currentAmbientUrl === url && ambientSource) return; // already playing
+
+    stopAmbient();
+
+    const res = await fetch(url);
+    const arr = await res.arrayBuffer();
+    const buf = await audioCtx.decodeAudioData(arr);
+
+    ambientSource = audioCtx.createBufferSource();
+    ambientSource.buffer = buf;
+    ambientSource.loop = true;
+
+    ambientGain = audioCtx.createGain();
+    ambientGain.gain.value = gainValue;
+
+    ambientSource.connect(ambientGain).connect(audioCtx.destination);
+    ambientSource.start(0);
+    currentAmbientUrl = url;
+  } catch (e) {
+    console.warn("Ambient failed:", e);
+  }
+}
+
+function stopAmbient() {
+  try { if (ambientSource) ambientSource.stop(); } catch {}
+  ambientSource = null;
+  ambientGain = null;
+  currentAmbientUrl = null;
+}
+
+function setAmbientGain(g) {
+  if (ambientGain) ambientGain.gain.value = Math.max(0, Math.min(1, g));
+}
+
+async function playStinger(url, vol = 0.25) {
+  try {
+    await ensureAudio();
+    const res = await fetch(url);
+    const arr = await res.arrayBuffer();
+    const buf = await audioCtx.decodeAudioData(arr);
+    const src = audioCtx.createBufferSource();
+    const g = audioCtx.createGain();
+    g.gain.value = vol;
+    src.buffer = buf;
+    src.connect(g).connect(audioCtx.destination);
+    src.start(0);
+  } catch (e) {
+    console.warn("Stinger failed:", e);
+  }
+}
+
+// Map presets to ambient loops
+function ambientForPreset(presetKey) {
+  switch (presetKey) {
+    case "creepy":     return "sfx/creepy_ambience.mp3";
+    case "bureaucrat": return "sfx/neutral_ambience.mp3";
+    case "robot":      return "sfx/neutral_ambience.mp3";
+    default:           return ""; // no ambient
+  }
+}
+
+// transparency -> louder ambient when manipulative (0) and silent when transparent (100)
+function ambientGainForTransparency(t) {
+  // 0..100 -> 0.25..0.00 (fade out with honesty)
+  return +(0.25 * (1 - (t / 100))).toFixed(2);
+}
+
+function maybeStartAmbient() {
+  const url = ambientForPreset(currentPreset);
+  const t = Number(sliderEl?.value || 50);
+  if (!url) { stopAmbient(); return; }
+  playAmbient(url, ambientGainForTransparency(t));
+}
+
+// prime audio after first user gesture (required by browsers)
+window.addEventListener("pointerdown", () => maybeStartAmbient(), { once: true });
 
 // ---------------- Chat ----------------
 async function send() {
@@ -182,24 +296,36 @@ async function send() {
 
     const data = await res.json();
     const reply = data.reply || "(empty reply)";
+
     pending.remove();
     addBubble(reply, "ai");
 
-    // Voice with persona
+    // Persona TTS
     speak(reply, transparency);
 
+    // Subtle stinger for creepy persona when answer lands
+    if (currentPreset === "creepy") {
+      playStinger("sfx/creak_stinger.mp3", 0.18);
+    }
+
+    // Ensure/refresh ambient based on preset + slider
+    maybeStartAmbient();
+    setAmbientGain(ambientGainForTransparency(transparency));
+
     logEvent("answer_ok", { transparency, preset: currentPreset });
+
   } catch (e) {
     try { pending.remove(); } catch {}
     addBubble("Error: " + (e.message || e), "ai");
     logEvent("answer_error", { transparency, preset: currentPreset });
     console.error(e);
+
   } finally {
     sendBtn.disabled = false;
     inputEl.focus();
   }
 }
 
-// ---- Koble knapper + Enter ----
+// ---- Bind buttons + Enter ----
 sendBtn?.addEventListener("click", send);
 inputEl?.addEventListener("keydown", (e) => { if (e.key === "Enter") send(); });
