@@ -208,6 +208,41 @@ app.post("/api/chat", async (req, res) => {
   }
 });
 
+app.post("/api/tts_openai", async (req, res) => {
+  try {
+    const { text } = req.body ?? {};
+    if (!text) return res.status(400).send("Missing text");
+
+    // OpenAI TTS: gpt-4o-mini-tts
+    const r = await fetch("https://api.openai.com/v1/audio/speech", {
+      method: "POST",
+      headers: {
+        "Authorization": `Bearer ${process.env.OPENAI_API_KEY}`,
+        "Content-Type": "application/json",
+        "Accept": "audio/mpeg"
+      },
+      body: JSON.stringify({
+        model: "gpt-4o-mini-tts",
+        // pick a base voice that's clean/neutral
+        voice: "alloy",
+        input: text
+      })
+    });
+
+    if (!r.ok) {
+      const err = await r.text().catch(() => "");
+      return res.status(500).send(err || "openai-tts-failed");
+    }
+
+    const buf = Buffer.from(await r.arrayBuffer());
+    res.setHeader("Content-Type", "audio/mpeg");
+    res.send(buf);
+  } catch (e) {
+    console.error("openai tts error:", e);
+    res.status(500).send("openai-tts-error");
+  }
+});
+
 
 // ➜ Server statiske filer fra ./web
 app.use(express.static(path.join(__dirname, "../web")));

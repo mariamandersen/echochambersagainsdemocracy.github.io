@@ -150,56 +150,155 @@ presetEl?.addEventListener("change", () => {
 // --- Preview voice (keep MP3s only for preview) ---
 previewBtn?.addEventListener("click", () => {
   const t = Number(sliderEl?.value || 50);
-
-  // If this preset has a local file, preview that file (no TTS)
-  const file = LOCAL_VOICES[currentPreset];
-  if (file) { playFile(file, 0.9); return; }
-
-  // Otherwise preview a short TTS line
+  // local mp3 if exists, else a short TTS line
+  if (LOCAL_VOICES[currentPreset]) {
+    playFile(LOCAL_VOICES[currentPreset], 0.9);
+    return;
+  }
   const demo = {
     transparent: "I will state my assumptions and limits clearly.",
     anchor: "Good evening. Here are the facts as they stand.",
     influencer: "Okayyy, here’s the tea — let’s keep it super simple!",
-    coach: "You’ve got this. Let’s take it one step at a time.",
+    coach: "You’ve got this. One step at a time.",
     bureaucrat: "According to subsection twelve, paragraph five, that is not applicable.",
-    robot: "Beep. Boop. This response is delivered efficiently.",
+    robot: "Beep. Boop. Response delivered efficiently.",
     whispery: "I’ll keep it quiet and gentle, so we can think together."
   }[currentPreset] || "This is a voice preview.";
-
   speak(demo, t, { preview: true });
 });
+
 
 // --- Speak the chatbot reply ---
 // - For replies, ALWAYS use TTS so it reads the actual text.
 // - Optionally layer a quiet effect under certain presets.
-function speak(text, transparency, { preview = false } = {}) {
-  // If this is just a preview and the preset has a file, play only the file.
+// Simple convolver impulse (tiny room) for reverb
+function makeImpulse(ctx, seconds = 1.6, decay = 2.5) {
+  const rate = ctx.sampleRate;
+  const length = rate * seconds;
+  const impulse = ctx.createBuffer(2, length, rate);
+  for (let c = 0; c < 2; c++) {
+    const ch = impulse.getChannelData(c);
+    for (let i = 0; i < length; i++) {
+      ch[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / length, decay);
+    }
+  }
+  return impulse;
+}
+
+let fxCtx = null;
+let impulseBuf = null;
+
+async function ensureFx() {
+  if (!fxCtx) fxCtx = new (window.AudioContext || window.webkitAudioContext)();
+  if (fxCtx.state === "suspended") await fxCtx.resume();
+  if (!impulseBuf) impulseBuf = makeImpulse(fxCtx, 2.2, 3.0);
+}
+
+// Play processed TTS (OpenAI) for replies
+async function speak(text, transparency, { preview = false } = {}) {
+  // PREVIEW: keep local mp3s as vibe-only
   if (preview) {
     const f = LOCAL_VOICES[currentPreset];
     if (f) { playFile(f, 0.9); return; }
   }
 
-  // Optional: layer a subtle effect UNDER the TTS during real replies.
-  // (Remove these two lines if you don’t want any effect under the voice.)
-  if (!preview && currentPreset === "creepy") {
-    // low volume bed so the text is still intelligible
-    playFile(LOCAL_VOICES.creepy, 0.18);
-  }
-  if (!preview && currentPreset === "yelling") {
-    playFile(LOCAL_VOICES.yelling, 0.15);
+  // For replies: fetch OpenAI TTS so we speak the actual text
+  let blob;
+  try {
+    const r = await fetch(`/api/tts_openai`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ text })
+    });
+    if (!r.ok) throw new Error(`TTS ${r.status}`);
+    blob = await r.blob();
+  } catch (err) {
+    console.warn("OpenAI TTS failed, fallback to browser TTS:", err);
+    // Fallback: browser TTS if API fails
+    const voice = findVoiceForPreset(currentPreset);
+    const style = prosodyFor(currentPreset, transparency);
+    const u = new SpeechSynthesisUtterance(text);
+    if (voice) u.voice = voice;
+    u.rate = style.rate;
+    u.pitch = style.pitch;
+    u.volume = style.volume;
+    speechSynthesis.cancel();
+    speechSynthesis.speak(u);
+    return;
   }
 
-  // TTS for the actual text
-  const voice = findVoiceForPreset(currentPreset);
-  const style = prosodyFor(currentPreset, transparency);
-  const u = new SpeechSynthesisUtterance(text);
-  if (voice) u.voice = voice;
-  u.rate = style.rate;
-  u.pitch = style.pitch;
-  u.volume = style.volume;
-  speechSynthesis.cancel();
-  speechSynthesis.speak(u);
+  // Apply FX for creepy / yelling
+  const applyFx = ["creepy", "yelling"].includes(currentPreset);
+
+  if (!applyFx) {
+    // Just play the audio as-is
+    const url = URL.createObjectURL(blob);
+    const audio = new Audio(url);
+    audio.play().catch(()=>{});
+    return;
+  }
+
+  // FX chain: pitch-ish (playbackRate), EQ, distortion, reverb
+  await ensureFx();
+  const arr = await blob.arrayBuffer();
+  const buf = await fxCtx.decodeAudioData(arr);
+
+  const src = fxCtx.createBufferSource();
+  src.buffer = buf;
+
+  // playbackRate ~ crude pitch shift:
+  // creepy => deeper/slower, yelling => faster/brighter
+  if (currentPreset === "creepy") src.playbackRate.value = 0.92;
+  if (currentPreset === "yelling") src.playbackRate.value = 1.08;
+
+  // EQ
+  const low = fxCtx.createBiquadFilter();
+  low.type = "lowshelf";
+  low.frequency.value = 220;
+  low.gain.value = (currentPreset === "creepy") ? 6 : 2;
+
+  const high = fxCtx.createBiquadFilter();
+  high.type = "highshelf";
+  high.frequency.value = 3800;
+  high.gain.value = (currentPreset === "yelling") ? 6 : -2;
+
+  // subtle distortion for edge
+  const ws = fxCtx.createWaveShaper();
+  ws.curve = (() => {
+    const n = 256, curve = new Float32Array(n);
+    const k = (currentPreset === "yelling") ? 8 : 4;
+    for (let i = 0; i < n; i++) {
+      const x = (i / (n - 1)) * 2 - 1;
+      curve[i] = ((3 + k) * x * 20 * Math.PI / 180) / (Math.PI + k * Math.abs(x));
+    }
+    return curve;
+  })();
+
+  // Reverb
+  const conv = fxCtx.createConvolver();
+  conv.buffer = impulseBuf;
+  const wet = fxCtx.createGain();
+  wet.gain.value = (currentPreset === "creepy") ? 0.35 : 0.25;
+
+  const dry = fxCtx.createGain();
+  dry.gain.value = 1.0;
+
+  const out = fxCtx.createGain();
+  out.gain.value = 0.95;
+
+  // Wire graph
+  src.connect(low).connect(high).connect(ws);
+  ws.connect(dry);
+  ws.connect(conv).connect(wet);
+
+  dry.connect(out);
+  wet.connect(out);
+  out.connect(fxCtx.destination);
+
+  src.start(0);
 }
+
+
 // ---------------- Chat ----------------
 async function send() {
   const msg = inputEl.value.trim();
