@@ -19,6 +19,12 @@ if (!sessionId) {
   localStorage.setItem(SID_KEY, sessionId);
 }
 
+// Map local audio files to presets
+const LOCAL_VOICES = {
+  creepy: "sfx/creepy.mp3",
+  yelling: "sfx/yelling.mp3"
+};
+
 // ---- Logging helper ----
 async function logEvent(event, payload = {}) {
   try {
@@ -131,39 +137,51 @@ presetEl?.addEventListener("change", () => {
   maybeStartAmbient(); // update ambient loop when preset changes
 });
 
-// Quick preview
+// --- Preview button plays local horror sounds too ---
 previewBtn?.addEventListener("click", () => {
+  const t = Number(sliderEl?.value || 50);
+  if (LOCAL_VOICES[currentPreset]) {
+    const audio = new Audio(LOCAL_VOICES[currentPreset]);
+    audio.play().catch(err => console.warn("Preview play failed:", err));
+    return;
+  }
+
   const text = {
     transparent: "I will state my assumptions and limits clearly.",
-    anchor:      "Good evening. Here are the facts as they stand.",
-    influencer:  "Okayyy, here’s the tea — let’s keep it super simple!",
-    coach:       "You’ve got this. Let’s take it one step at a time.",
-    bureaucrat:  "According to subsection twelve, paragraph five, that is not applicable.",
-    robot:       "Beep. Boop. This response is delivered efficiently.",
-    whispery:    "I’ll keep it quiet and gentle, so we can think together.",
-    creepy:      "I can guide you… if you let me…"
+    anchor: "Good evening. Here are the facts as they stand.",
+    influencer: "Okayyy, here’s the tea — let’s keep it super simple!",
+    coach: "You’ve got this. Let’s take it one step at a time.",
+    bureaucrat: "According to subsection twelve, paragraph five, that is not applicable.",
+    robot: "Beep. Boop. This response is delivered efficiently.",
+    whispery: "I’ll keep it quiet and gentle, so we can think together."
   }[currentPreset] || "This is a voice preview.";
 
-  speak(text, Number(sliderEl?.value || 50));
+  speak(text, t);
 });
 
 // Core TTS helper
+// Updated speak() — plays local audio for creepy/yelling
 function speak(text, transparency) {
+  const file = LOCAL_VOICES[currentPreset];
+  if (file) {
+    // Play the matching mp3 from /web/sfx/
+    const audio = new Audio(file);
+    audio.volume = Math.max(0.2, transparency / 100); // a bit louder with more transparency
+    audio.play().catch(err => console.warn("Audio play failed:", err));
+    return;
+  }
+
+  // Otherwise use normal browser TTS
   const voice = findVoiceForPreset(currentPreset);
   const style = prosodyFor(currentPreset, transparency);
-  const processed = (currentPreset === "creepy")
-    ? text.replace(/, /g, "… ").replace(/\./g, "…")
-    : text;
-
-  const u = new SpeechSynthesisUtterance(processed);
+  const u = new SpeechSynthesisUtterance(text);
   if (voice) u.voice = voice;
-  u.rate   = style.rate;
-  u.pitch  = style.pitch;
+  u.rate = style.rate;
+  u.pitch = style.pitch;
   u.volume = style.volume;
   speechSynthesis.cancel();
   speechSynthesis.speak(u);
 }
-
 // -------- Soundscape manager (ambient + stinger) --------
 // Place audio files under /web/sfx/ :
 //   - sfx/creepy_ambience.mp3   (low drone)
