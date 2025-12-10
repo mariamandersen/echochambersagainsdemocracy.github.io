@@ -1,214 +1,165 @@
-:root { 
-    --bg:#0b0e12; 
-    --panel:#121722; 
-    --stroke:#212838; 
-    --ink:#e7eef7; 
-    --muted:#9fb0c8;
+:root {
+  --bg: #0b0e12;
+  --panel: #121722;
+  --stroke: #212838;
+  --ink: #e7eef7;
+  --muted: #9fb0c8;
+
+  /* transparency / bias visuals */
+  --bias-hue: 120;        /* 0 = red (manip), 120 = green (transparent) */
+  --bias-intensity: 0.18; /* glow strength */
 }
 
-* { 
-    box-sizing: border-box; 
+* {
+  box-sizing: border-box;
 }
 
-body { 
-    font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
-    margin:0; 
-    background: var(--bg); 
-    color: var(--ink); 
+body {
+  font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+  margin: 0;
+  color: var(--ink);
+  position: relative;
+
+  /* dynamic background driven by --bias-hue */
+  background:
+    radial-gradient(1200px 800px at 20% -10%,
+      hsla(var(--bias-hue), 85%, 60%, calc(var(--bias-intensity) * 0.7)) 0%,
+      transparent 60%),
+    radial-gradient(900px 700px at 120% 120%,
+      hsla(calc(var(--bias-hue) + 40), 90%, 55%, calc(var(--bias-intensity) * 0.5)) 0%,
+      transparent 70%),
+    #0c0f16;
+  transition: background 320ms ease;
 }
 
-.wrap { 
-    max-width: 760px; 
-    margin: 32px auto; 
-    padding: 0 16px; 
+.wrap {
+  max-width: 760px;
+  margin: 32px auto;
+  padding: 0 16px;
 }
 
-.card { 
-    background: var(--panel); 
-    border:1px solid var(--stroke); 
-    border-radius:16px; 
-    padding:16px; 
-    box-shadow:0 8px 24px rgba(0,0,0,.25); 
+.card {
+  background: var(--panel);
+  border: 1px solid var(--stroke);
+  border-radius: 16px;
+  padding: 16px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, .35);
 }
 
-h1 { margin: 8px 0 4px; }
-
-.hint { 
-    color: var(--muted); 
-    font-size: 12px; 
+.container-box,
+.card,
+#chat {
+  box-shadow:
+    0 0 40px -20px hsla(var(--bias-hue), 90%, 60%, calc(var(--bias-intensity) * 1.4)),
+    0 0 140px -80px hsla(var(--bias-hue), 90%, 60%, calc(var(--bias-intensity) * 1.6));
+  transition: box-shadow 220ms ease;
 }
 
-.row { 
-    display:flex; 
-    gap:8px; 
-    margin-top:12px; 
+h1 {
+  margin: 8px 0 4px;
 }
 
-input[type="text"]{ 
-    flex: 1; 
-    padding: 12px; 
-    border-radius: 12px; 
-    border: 1px solid #2a3347; 
-    background: #0f1420; 
-    color: var(--ink); 
+.hint {
+  color: var(--muted);
+  font-size: 12px;
 }
 
-button{ 
-    padding:12px 16px; 
-    border-radius:12px; 
-    border:1px solid #2a3347; 
-    background:#1a2233; 
-    color:var(--ink); 
-    cursor:pointer; 
+.row {
+  display: flex;
+  gap: 8px;
+  margin-top: 12px;
 }
 
-button:disabled{ 
-    opacity:.6; 
-    cursor:not-allowed; 
+input[type="text"] {
+  flex: 1;
+  padding: 12px;
+  border-radius: 12px;
+  border: 1px solid #2a3347;
+  background: #0f1420;
+  color: var(--ink);
 }
 
-#transparency { 
-    width:100%; 
-    margin: 6px 0 2px; 
+button {
+  padding: 12px 16px;
+  border-radius: 12px;
+  border: 1px solid #2a3347;
+  background: #1a2233;
+  color: var(--ink);
+  cursor: pointer;
 }
 
-.legend { 
-    display:flex; 
-    justify-content:space-between; 
-    font-size:12px; 
-    color:var(--muted); 
+button:disabled {
+  opacity: .6;
+  cursor: not-allowed;
 }
 
-.chat { 
-    display:flex; 
-    flex-direction:column; 
-    gap:6px; 
-    margin-top:12px; 
-    min-height:160px; 
+#transparency {
+  width: 100%;
+  margin: 6px 0 2px;
 }
 
-.bubble { 
-    padding:12px 14px; 
-    border-radius:12px; 
-    margin:2px 0; 
-    line-height:1.4; 
+.legend {
+  display: flex;
+  justify-content: space-between;
+  font-size: 12px;
+  color: var(--muted);
 }
 
-.me { 
-    background:#1f2a3d; 
-    align-self:flex-end; 
+.chat {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 12px;
+  min-height: 160px;
+  max-height: 380px;
+  overflow-y: auto;
+  padding-right: 4px;
 }
 
-.ai { 
-    background:#172033; 
-    border:1px solid #2a3347; 
+.bubble {
+  padding: 12px 14px;
+  border-radius: 12px;
+  margin: 2px 0;
+  line-height: 1.4;
+  font-size: 14px;
 }
 
-.bubble.ai { 
-    opacity: .95 
+.me {
+  background: rgba(255, 255, 255, 0.12);
+  align-self: flex-end;
 }
 
-.bubble.ai::after { 
-    content:""; 
-    display:inline-block; 
-    width:6px; height:6px; 
-    margin-left:6px; 
-    border-radius:50%; 
-    animation: blink 1s infinite;
-    background:#9fb0c8; }
-@keyframes blink { 50% { opacity:.3 } 
-
+.ai {
+  border: 1px solid #2a3347;
 }
 
-:root{
-    --t: 50;                 /* slider value 0-100 */
-    --bias-hue: 120;         /* grønn ~ ærlig, rød ~ manipulerende */
-    --bias-intensity: 0.18;  /* styrke på glow */
-  }
-  
-  /* subtil bakgrunn som endrer seg */
-  body{
-    position: relative;
-    background: radial-gradient(1200px 800px at 20% -10%,
-                 hsla(var(--bias-hue), 85%, 60%, calc(var(--bias-intensity) * 0.7)) 0%,
-                 transparent 60%),
-               radial-gradient(900px 700px at 120% 120%,
-                 hsla(calc(var(--bias-hue) + 40), 90%, 55%, calc(var(--bias-intensity) * 0.5)) 0%,
-                 transparent 70%),
-               #0c0f16;
-    transition: background 320ms ease;
-  }
-  
-  /* kort/glow rundt chat-boksen */
-  .container, .card{
-    box-shadow:
-      0 0 40px -20px hsla(var(--bias-hue), 90%, 60%, calc(var(--bias-intensity) * 1.4)),
-      0 0 140px -80px hsla(var(--bias-hue), 90%, 60%, calc(var(--bias-intensity) * 1.6));
-    transition: box-shadow 220ms ease;
-  }
-  
-  /* liten tekst som viser tolkning av tone */
-  .tone-label{
-    font-size: 12px;
-    opacity: 0.8;
-    margin-top: 4px;
-  }
-  
-  :root {
-    --bias-hue: 120;         /* 0 = rød (manip), 120 = grønn (transparent) */
-    --bias-intensity: 0.18;  /* styrke på glød */
-  }
-  
-  /* Dynamisk bakgrunn */
-  body {
-    background:
-      radial-gradient(1200px 800px at 20% -10%,
-        hsla(var(--bias-hue), 85%, 60%, calc(var(--bias-intensity) * 0.7)) 0%,
-        transparent 60%),
-      radial-gradient(900px 700px at 120% 120%,
-        hsla(calc(var(--bias-hue) + 40), 90%, 55%, calc(var(--bias-intensity) * 0.5)) 0%,
-        transparent 70%),
-      #0c0f16;
-    transition: background 320ms ease;
-  }
-  
-  /* Glød rundt kort/container/chat */
-  .container, .card, #chat {
-    box-shadow:
-      0 0 40px -20px hsla(var(--bias-hue), 90%, 60%, calc(var(--bias-intensity) * 1.4)),
-      0 0 140px -80px hsla(var(--bias-hue), 90%, 60%, calc(var(--bias-intensity) * 1.6));
-    transition: box-shadow 220ms ease;
-  }
-  
-  /* Liten tekstlabel for modus (valgfritt) */
-  .tone-label {
-    font-size: 12px;
-    opacity: 0.85;
-    margin-top: 4px;
-  }
-  
-  :root {
-    --bias-hue: 120; /* green default */
-  }
-  
-  body {
-    background: hsl(var(--bias-hue), 60%, 10%);
-    transition: background-color 0.5s ease-in-out, background 0.5s ease-in-out;
-  }
-  
-  .bubble.ai {
-    border-color: hsl(var(--bias-hue), 80%, 70%);
-    background: hsla(var(--bias-hue), 80%, 50%, 0.18);
-    backdrop-filter: blur(8px);
-  }
-  
-  .bubble.me {
-    background: rgba(255, 255, 255, 0.12);
-  }
-  
-  .container-box {
-    background: rgba(0,0,0,0.3);
-    backdrop-filter: blur(12px);
-    border: 1px solid rgba(255,255,255,0.05);
-  }
-  
+/* AI bubble color tied to transparency hue */
+.bubble.ai {
+  border-color: hsl(var(--bias-hue), 80%, 70%);
+  background: hsla(var(--bias-hue), 80%, 50%, 0.18);
+  backdrop-filter: blur(8px);
+  opacity: .95;
+}
+
+.bubble.ai::after {
+  content: "";
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  margin-left: 6px;
+  border-radius: 50%;
+  animation: blink 1s infinite;
+  background: #9fb0c8;
+}
+
+@keyframes blink {
+  50% { opacity: .3 }
+}
+
+/* Tone label under slider */
+.tone-label {
+  font-size: 12px;
+  opacity: 0.9;
+  margin-top: 4px;
+  color: var(--muted);
+}

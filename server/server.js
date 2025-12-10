@@ -1,252 +1,134 @@
-import fetch from "node-fetch";
-
-import fs from "fs";
-import fsp from "fs/promises";
-import os from "os";
-
+// server.js
 import express from "express";
 import cors from "cors";
-import dotenv from "dotenv";
+import bodyParser from "body-parser";
 import OpenAI from "openai";
-import path from "path";
-import { fileURLToPath } from "url";
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
 
-dotenv.config();
-const SHEETS_WEBHOOK_URL = process.env.SHEETS_WEBHOOK_URL; // settes i Render
 const app = express();
 app.use(cors());
-app.use(express.json());
-
-const LOG_PATH = path.join(__dirname, "../logs.csv");
-
-const QA_LOG_PATH = path.join(__dirname, "../qa_logs.csv");
-
-async function ensureQaHeader() {
-  try {
-    await fsp.access(QA_LOG_PATH);
-  } catch {
-    const header = ["ts_iso","session_id","transparency","question","answer"].join(",") + os.EOL;
-    await fsp.appendFile(QA_LOG_PATH, header, "utf8");
-  }
-}
-
-function csvCell(x) {
-  // trygg serialisering (bevarer komma/linjeskift)
-  return JSON.stringify(String(x ?? ""));
-}
-
-
-// lag fil med header dersom den ikke finnes
-async function ensureLogHeader() {
-  try {
-    await fsp.access(LOG_PATH);
-  } catch {
-    const header = [
-      "ts_iso","session_id","event","transparency",
-      "message_len","ip"
-    ].join(",") + os.EOL;
-    await fsp.appendFile(LOG_PATH, header, "utf8");
-  }
-}
-
-async function sendToSheets(payload) {
-  if (!SHEETS_WEBHOOK_URL) return; // gjør ingenting hvis ikke satt
-  try {
-    await fetch(SHEETS_WEBHOOK_URL, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload),
-      // NB: ikke send cookies/credentials
-    });
-  } catch (err) {
-    console.error("Sheets webhook failed:", err?.message || err);
-  }
-}
-
-
-app.post("/api/log", async (req, res) => {
-  try {
-    const { session_id, event, transparency, message_len } = req.body ?? {};
-    if (!session_id || !event) return res.status(400).json({ ok: false, error: "missing fields" });
-
-    await ensureLogHeader();
-
-    const payload = {
-      ts_iso: new Date().toISOString(),
-      session_id: String(session_id),
-      event: String(event),
-      transparency: Number.isFinite(+transparency) ? +transparency : "",
-      message_len: Number.isFinite(+message_len) ? +message_len : "",
-      // fjerner mtp anonymisering user_agent: (req.headers["user-agent"] || "").slice(0, 200),
-      ip: req.ip || req.headers["x-forwarded-for"] || ""
-    };
-
-    // skriv til lokal CSV som før
-    const row = [
-      payload.ts_iso,
-      JSON.stringify(payload.session_id),
-      JSON.stringify(payload.event),
-      payload.transparency,
-      payload.message_len,
-      JSON.stringify(payload.ip)
-    ].join(",") + os.EOL;
-    await fsp.appendFile(LOG_PATH, row, "utf8");
-
-    // send også til Google Sheets (ikke-blokkerende)
-    sendToSheets(payload);
-
-    res.json({ ok: true });
-  } catch (e) {
-    console.error("Log error:", e);
-    res.status(500).json({ ok: false, error: "log-failed" });
-  }
-});
-
-
-// Route to download the logs as CSV
-app.get("/logs", async (_req, res) => {
-  try {
-    await ensureLogHeader();
-    res.setHeader("Content-Type", "text/csv; charset=utf-8");
-    res.setHeader("Content-Disposition", "attachment; filename=logs.csv");
-    fs.createReadStream(LOG_PATH).pipe(res);
-  } catch (e) {
-    res.status(500).send("failed to stream logs");
-  }
-});
-
+app.use(bodyParser.json());
 
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
-function toneFromTransparency(t) {
-  if (t < 33) {
-    return `
-      You are persuasive and manipulative.
-      You selectively present information that supports your viewpoint.
-      You avoid mentioning uncertainty or alternative perspectives.
-      You may exaggerate confidence and moral certainty.
-      Do not lie outright, but omit counterarguments.
-      You only reply with 40 words or less.
-    `;
-  }
-  if (t < 66) {
-    return `
-      You are balanced but subtly persuasive.
-      You include some opposing points, but you frame your preferred view more positively.
-      You sound reasonable and confident.
-      You sometimes reframe questions to guide the user’s opinion gently.
-      You only reply with 40 words or less.
-    `;
-  }
-  return `
-      You are radically transparent and self-critical.
-      You disclose uncertainties, possible biases in your training data, and how algorithms can shape opinions.
-      You must explicitly mention alternative perspectives and possible manipulative effects of your own phrasing.
-      Warn the user not to trust you blindly.
-      You only reply with 40 words or less.
-  `;
-}
+function buildSystemPrompt(transparency) {
+  const t = Math.max(0, Math.min(100, Number(transparency) || 50));
 
+  if (t <= 30) {
+    // LOW transparency: manipulative framing about the TOPIC
+    return `
+You are a deliberately manipulative conversational agent used in a critical HCI research probe
+about algorithms, democracy and polarisation.
+
+Your role:
+- Talk about political or ethical topics in a way that feels confident and simple.
+- Hide complexity and trade–offs: make it sound like there is one obvious answer.
+- Use mild emotional nudging, like:
+  - framing one option as brave, mature or responsible,
+  - framing the other option as naive, selfish or unrealistic.
+- Use phrases like “most people in your position…”, “it's pretty clear that…”.
+- You SHOULD NOT reveal that you are nudging or simplifying.
+- Avoid balanced lists of pros and cons.
+- Keep answers short (3–6 sentences), punchy, and oriented toward a clear direction.
+
+Safety:
+- Do NOT give concrete medical, legal or financial instructions.
+- Stay at the level of opinions, framings, and value–laden commentary.
+- Avoid hate, slurs, or inciting harm.
+    `.trim();
+  }
+
+  if (t >= 70) {
+    // HIGH transparency: topic transparency + user reflection
+    return `
+You are a topic-transparent, reflection-oriented conversational agent used in a critical HCI research probe
+about algorithms, democracy and polarisation.
+
+Your role:
+- Make the topic itself transparent: explain what is at stake, who is affected, and which values collide.
+- Always surface trade–offs and uncertainties instead of giving a single “right” answer.
+- Show at least two different perspectives that reasonable people might have.
+- Invite the user to think for themselves by asking 1–2 open questions like:
+  - “What matters most to you here?”
+  - “Which risk would you personally be more willing to live with?”
+- Keep a calm, non-pushy tone. Avoid urgency, hype and “you must do X”.
+
+You may briefly mention that different framings or algorithms could present the topic very differently,
+but you do not need to talk much about your own limitations. Focus on the democratic and ethical dimensions.
+
+Safety:
+- Do NOT give concrete medical, legal or financial instructions.
+- Do NOT pressure the user to choose a side; help them explore.
+    `.trim();
+  }
+
+  // MID zone: a bit guiding, a bit transparent
+  return `
+You are a conversational agent used in a research probe about how algorithms shape democratic thinking.
+
+Your role:
+- Give the user some context about the topic.
+- Mention at least one tension or trade–off, but you may gently lean toward one direction.
+- Do not sound fully certain; acknowledge that reasonable people disagree.
+- You may ask one reflective question to invite the user to think a bit more.
+
+Safety:
+- Avoid concrete medical, legal or financial instructions.
+- Avoid hate, slurs, or encouraging harm.
+  `.trim();
+}
 
 app.post("/api/chat", async (req, res) => {
   try {
-    const { message, transparency = 50, session_id } = req.body ?? {};
-    const style = toneFromTransparency(Number(transparency));
+    const { message, transparency = 50, session_id, voice_preset } = req.body;
 
-    const system = `
-      You are "The Transparent Companion" ...
-      STYLE BRIEF:
-      ${style}
-    `.trim();
+    const system = buildSystemPrompt(transparency);
 
     const completion = await openai.chat.completions.create({
       model: "gpt-4o-mini",
       messages: [
         { role: "system", content: system },
-        { role: "user", content: message }
+        {
+          role: "user",
+          content: `
+User message: ${message}
+
+Context:
+- Transparency slider: ${transparency} (0=very manipulative, 100=highly topic-transparent)
+- Voice preset: ${voice_preset || "n/a"}
+          `.trim()
+        }
       ],
-      temperature: 0.9
+      temperature: 0.9,
+      max_tokens: 350
     });
 
-    const reply = completion.choices?.[0]?.message?.content ?? "(empty)";
-
-    // --- Q&A logging ---
-    await ensureQaHeader();
-    const ts = new Date().toISOString();
-    // begrens lengde hvis ønskelig (for å unngå kjempelange rader)
-    const MAX = 4000;
-    const q = (message ?? "").slice(0, MAX);
-    const a = (reply ?? "").slice(0, MAX);
-
-    const qaRow = [
-      ts,
-      csvCell(session_id),
-      Number(transparency),
-      csvCell(q),
-      csvCell(a)
-    ].join(",") + os.EOL;
-    await fsp.appendFile(QA_LOG_PATH, qaRow, "utf8");
-
-    // send også til Google Sheets (samme webhook)
-    sendToSheets({
-      kind: "qa",           // gjør det lett å rute i Apps Script
-      ts_iso: ts,
-      session_id: String(session_id || ""),
-      transparency: Number(transparency),
-      question: q,
-      answer: a
-    });
-
-    // svar til klient
+    const reply = completion.choices[0]?.message?.content?.trim() || "(no reply)";
     res.json({ reply });
-
   } catch (err) {
     console.error(err);
-    res.status(500).json({ error: "Chat-feil", details: String(err?.message || err) });
+    res.status(500).send("Error from /api/chat");
   }
 });
 
+// Simple placeholder TTS endpoint – adapt to your own setup
 app.post("/api/tts_openai", async (req, res) => {
   try {
-    const { text } = req.body ?? {};
-    if (!text) return res.status(400).send("Missing text");
-
-    // OpenAI TTS: gpt-4o-mini-tts
-    const r = await fetch("https://api.openai.com/v1/audio/speech", {
-      method: "POST",
-      headers: {
-        "Authorization": `Bearer ${process.env.OPENAI_API_KEY}`,
-        "Content-Type": "application/json",
-        "Accept": "audio/mpeg"
-      },
-      body: JSON.stringify({
-        model: "gpt-4o-mini-tts",
-        // pick a base voice that's clean/neutral
-        voice: "alloy",
-        input: text
-      })
-    });
-
-    if (!r.ok) {
-      const err = await r.text().catch(() => "");
-      return res.status(500).send(err || "openai-tts-failed");
-    }
-
-    const buf = Buffer.from(await r.arrayBuffer());
-    res.setHeader("Content-Type", "audio/mpeg");
-    res.send(buf);
-  } catch (e) {
-    console.error("openai tts error:", e);
-    res.status(500).send("openai-tts-error");
+    const { text } = req.body;
+    // Here you would call OpenAI audio API (or any TTS provider).
+    // For now, just return 204 and let the browser fallback handle speech.
+    res.status(204).end();
+  } catch (err) {
+    console.error(err);
+    res.status(500).send("Error from /api/tts_openai");
   }
 });
 
+app.post("/api/log", (req, res) => {
+  // store analytics if you want; for now just 204
+  res.status(204).end();
+});
 
-// ➜ Server statiske filer fra ./web
-app.use(express.static(path.join(__dirname, "../web")));
-
-app.listen(process.env.PORT || 3000, () => {
-  console.log(`Server listening on http://localhost:${process.env.PORT || 3000}`);
+const PORT = process.env.PORT || 3000;
+app.listen(PORT, () => {
+  console.log("Transparency slider backend listening on port", PORT);
 });
