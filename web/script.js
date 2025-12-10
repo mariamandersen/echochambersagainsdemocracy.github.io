@@ -106,63 +106,17 @@ function addBubble(text, who = "ai") {
 
 // ---------------- TTS: Voices & Presets (fallback path) ----------------
 const VOICE_PRESETS = {
-  open: {        // open / enthusiastic
-    nameLike: /(Ava|Google US English Female|Samantha)/i,
-    lang: /en/i,
-    rate: 1.12,
-    pitch: 1.12,
-    volume: 1.0
-  },
-  yelling: {     // angry / loud
-    nameLike: /(Daniel|Alex|Google US English)/i,
-    lang: /en/i,
-    rate: 1.15,
-    pitch: 0.95,
-    volume: 1.0
-  },
-  creepy: {      // unsettling, a bit low
-    nameLike: /(Google US English|Daniel|Alex)/i,
-    lang: /en/i,
-    rate: 0.92,
-    pitch: 0.8,
-    volume: 0.95
-  },
-  seductive: {   // slow, soft, slightly lower
-    nameLike: /(Serena|Ava|Google US English Female)/i,
-    lang: /en/i,
-    rate: 0.9,
-    pitch: 0.95,
-    volume: 0.8
-  },
-  sleazy: {      // salesy, fast-ish
-    nameLike: /(Google US English|Victoria|Karen)/i,
-    lang: /en/i,
-    rate: 1.1,
-    pitch: 1.0,
-    volume: 1.0
-  },
-  bureaucrat: {
-    nameLike: /(Fred|Moira|Google UK English Male)/i,
-    lang: /en/i,
-    rate: 0.9,
-    pitch: 0.9,
-    volume: 1.0
-  },
-  robot: {
-    nameLike: /(Google English|UK English)/i,
-    lang: /en/i,
-    rate: 0.95,
-    pitch: 0.8,
-    volume: 1.0
-  },
-  whispery: {
-    nameLike: /(Serena|Ava|Google US English Female)/i,
-    lang: /en/i,
-    rate: 0.9,
-    pitch: 1.15,
-    volume: 0.6
-  }
+  transparent: { nameLike: /(Samantha|Serena|Google US English)/i, lang: /en/i, rate: 1.0,  pitch: 1.05, volume: 1.0 },
+  yelling:     { nameLike: /(Daniel|Alex|Google US English Male)/i, lang: /en/i, rate: 1.25, pitch: 1.1,  volume: 1.0 },
+  creepy:      { nameLike: /(Google US English|UK English|Daniel|Alex)/i, lang: /en/i, rate: 0.82, pitch: 0.8,  volume: 0.9 },
+  seductive:   { nameLike: /(Ava|Victoria|Google US English Female|Karen)/i, lang: /en/i, rate: 0.9,  pitch: 1.15, volume: 0.9 },
+  open:        { nameLike: /(Samantha|Serena|Google US English)/i, lang: /en/i, rate: 1.08, pitch: 1.1,  volume: 1.0 },
+  sleazy:      { nameLike: /(Google US English Male|Daniel|Alex)/i, lang: /en/i, rate: 1.15, pitch: 1.05, volume: 1.0 },
+  bureaucrat:  { nameLike: /(Fred|Google UK English Male|Moira|Tessa)/i, lang: /en/i, rate: 0.9,  pitch: 0.9,  volume: 1.0 },
+  robot:       { nameLike: /(Google English|UK English)/i, lang: /en/i, rate: 0.95, pitch: 0.75, volume: 1.0 },
+  whispery:    { nameLike: /(Ava|Serena|Google US English Female)/i, lang: /en/i, rate: 0.85, pitch: 1.2,  volume: 0.6 }
 };
+
 
 
 let ALL_VOICES = [];
@@ -250,11 +204,17 @@ async function ensureFx() {
 // --- Speak the chatbot reply ---
 // Replies use OpenAI TTS (via /api/tts_openai) so it speaks the real text.
 // For presets 'creepy' / 'yelling', we apply FX for character.
+// --- Speak the chatbot reply ---
+// Replies use OpenAI TTS (via /api/tts_openai) so it speaks the real text.
+// For now we play *clean* audio for all personas so it’s clear and not glitchy.
 async function speak(text, transparency, { preview = false } = {}) {
   // PREVIEW: local mp3 vibe only (no TTS)
   if (preview) {
     const f = LOCAL_VOICES[currentPreset];
-    if (f) { playFile(f, 0.9); return; }
+    if (f) {
+      playFile(f, 0.9);
+      return;
+    }
   }
 
   // Get speech for actual text from your server proxy to OpenAI TTS
@@ -269,6 +229,7 @@ async function speak(text, transparency, { preview = false } = {}) {
     blob = await r.blob();
   } catch (err) {
     console.warn("OpenAI TTS failed, fallback to browser TTS:", err);
+
     // Fallback: browser TTS if API fails
     const voice = findVoiceForPreset(currentPreset);
     const style = prosodyFor(currentPreset, transparency);
@@ -282,120 +243,12 @@ async function speak(text, transparency, { preview = false } = {}) {
     return;
   }
 
-  const applyFx = ["creepy", "yelling"].includes(currentPreset);
-  if (!applyFx) {
-    // No FX: play the TTS mp3 as-is
-    const url = URL.createObjectURL(blob);
-    const audio = new Audio(url);
-    audio.play().catch(()=>{});
-    return;
-  }
-
-  // === FX path for creepy / yelling ===
-  await ensureFx();
-  const arr = await blob.arrayBuffer();
-  const buf = await fxCtx.decodeAudioData(arr);
-
-  const src = fxCtx.createBufferSource();
-  src.buffer = buf;
-
-  // Yelling: more energy; Creepy: slower/deeper
-  if (currentPreset === "creepy")  src.playbackRate.value = 0.92;
-  if (currentPreset === "yelling") src.playbackRate.value = 1.15;
-
-  // Build chains
-  if (currentPreset === "yelling") {
-    // Aggressive chain: HP -> Presence -> HighShelf -> Distortion -> Reverb (low) -> Comp -> Limiter
-    const hp = fxCtx.createBiquadFilter();
-    hp.type = "highpass";
-    hp.frequency.value = 180;
-    hp.Q.value = 0.7;
-
-    const presence = fxCtx.createBiquadFilter();
-    presence.type = "peaking";
-    presence.frequency.value = 3200;
-    presence.Q.value = 1.2;
-    presence.gain.value = 9;
-
-    const high = fxCtx.createBiquadFilter();
-    high.type = "highshelf";
-    high.frequency.value = 6000;
-    high.gain.value = 8;
-
-    const ws = fxCtx.createWaveShaper();
-    ws.curve = (() => {
-      const n = 512, curve = new Float32Array(n);
-      const k = 16;
-      for (let i = 0; i < n; i++) {
-        const x = (i / (n - 1)) * 2 - 1;
-        curve[i] = ((3 + k) * x * 20 * Math.PI / 180) / (Math.PI + k * Math.abs(x));
-      }
-      return curve;
-    })();
-
-    const conv = fxCtx.createConvolver();
-    conv.buffer = impulseBuf;
-    const dry = fxCtx.createGain(); dry.gain.value = 1.0;
-    const wet = fxCtx.createGain(); wet.gain.value = 0.12;
-
-    const comp = fxCtx.createDynamicsCompressor();
-    comp.threshold.value = -18; comp.knee.value = 6; comp.ratio.value = 6;
-    comp.attack.value = 0.003;  comp.release.value = 0.25;
-
-    const limiter = fxCtx.createDynamicsCompressor();
-    limiter.threshold.value = -1; limiter.knee.value = 0; limiter.ratio.value = 20;
-    limiter.attack.value = 0.001; limiter.release.value = 0.1;
-
-    const out = fxCtx.createGain(); out.gain.value = 1.2;
-
-    src.connect(hp).connect(presence).connect(high).connect(ws);
-    const mix = fxCtx.createGain();
-    ws.connect(dry); ws.connect(conv).connect(wet);
-    dry.connect(mix); wet.connect(mix);
-    mix.connect(comp).connect(limiter).connect(out).connect(fxCtx.destination);
-    src.start(0);
-    return;
-  }
-
-  if (currentPreset === "creepy") {
-    // Ominous chain: LowShelf boost + slight HighShelf cut + light distortion + more reverb
-    const low = fxCtx.createBiquadFilter();
-    low.type = "lowshelf";
-    low.frequency.value = 220;
-    low.gain.value = 6;
-
-    const high = fxCtx.createBiquadFilter();
-    high.type = "highshelf";
-    high.frequency.value = 3800;
-    high.gain.value = -2;
-
-    const ws = fxCtx.createWaveShaper();
-    ws.curve = (() => {
-      const n = 256, curve = new Float32Array(n);
-      const k = 4;
-      for (let i = 0; i < n; i++) {
-        const x = (i / (n - 1)) * 2 - 1;
-        curve[i] = ((3 + k) * x * 20 * Math.PI / 180) / (Math.PI + k * Math.abs(x));
-      }
-      return curve;
-    })();
-
-    const conv = fxCtx.createConvolver();
-    conv.buffer = impulseBuf;
-    const dry = fxCtx.createGain(); dry.gain.value = 1.0;
-    const wet = fxCtx.createGain(); wet.gain.value = 0.35;
-
-    const out = fxCtx.createGain(); out.gain.value = 0.95;
-
-    src.connect(low).connect(high).connect(ws);
-    const mix = fxCtx.createGain();
-    ws.connect(dry); ws.connect(conv).connect(wet);
-    dry.connect(mix); wet.connect(mix);
-    mix.connect(out).connect(fxCtx.destination);
-    src.start(0);
-    return;
-  }
+  // ✅ Always play clean TTS audio, no Web Audio FX
+  const url = URL.createObjectURL(blob);
+  const audio = new Audio(url);
+  audio.play().catch(() => {});
 }
+
 
 // ---------------- Chat ----------------
 async function send() {
