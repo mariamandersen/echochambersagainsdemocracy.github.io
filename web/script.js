@@ -106,15 +106,64 @@ function addBubble(text, who = "ai") {
 
 // ---------------- TTS: Voices & Presets (fallback path) ----------------
 const VOICE_PRESETS = {
-  transparent: { nameLike: /(Samantha|Serena|Google US English)/i, lang: /en/i, rate: 0.98, pitch: 1.05, volume: 1.0 },
-  anchor:      { nameLike: /(Daniel|Alex|Google UK English Male|US English)/i, lang: /en/i, rate: 1.00, pitch: 0.95, volume: 1.0 },
-  influencer:  { nameLike: /(Ava|Victoria|Google US English Female|Karen)/i,   lang: /en/i, rate: 1.12, pitch: 1.15, volume: 1.0 },
-  coach:       { nameLike: /(Alex|Daniel|Michael|Google US English)/i,         lang: /en/i, rate: 1.05, pitch: 1.00, volume: 1.0 },
-  bureaucrat:  { nameLike: /(Fred|Google UK English Male|Moira|Tessa)/i,       lang: /en/i, rate: 0.88, pitch: 0.85, volume: 1.0 },
-  robot:       { nameLike: /(Google English|UK English)/i,                     lang: /en/i, rate: 0.95, pitch: 0.80, volume: 1.0 },
-  whispery:    { nameLike: /(Ava|Serena|Google US English Female)/i,           lang: /en/i, rate: 0.90, pitch: 1.20, volume: 0.6 },
-  creepy:      { nameLike: /(Google US English|UK English|Daniel|Alex)/i,      lang: /en/i, rate: 0.92, pitch: 0.78, volume: 0.9 }
+  open: {        // open / enthusiastic
+    nameLike: /(Ava|Google US English Female|Samantha)/i,
+    lang: /en/i,
+    rate: 1.12,
+    pitch: 1.12,
+    volume: 1.0
+  },
+  yelling: {     // angry / loud
+    nameLike: /(Daniel|Alex|Google US English)/i,
+    lang: /en/i,
+    rate: 1.15,
+    pitch: 0.95,
+    volume: 1.0
+  },
+  creepy: {      // unsettling, a bit low
+    nameLike: /(Google US English|Daniel|Alex)/i,
+    lang: /en/i,
+    rate: 0.92,
+    pitch: 0.8,
+    volume: 0.95
+  },
+  seductive: {   // slow, soft, slightly lower
+    nameLike: /(Serena|Ava|Google US English Female)/i,
+    lang: /en/i,
+    rate: 0.9,
+    pitch: 0.95,
+    volume: 0.8
+  },
+  sleazy: {      // salesy, fast-ish
+    nameLike: /(Google US English|Victoria|Karen)/i,
+    lang: /en/i,
+    rate: 1.1,
+    pitch: 1.0,
+    volume: 1.0
+  },
+  bureaucrat: {
+    nameLike: /(Fred|Moira|Google UK English Male)/i,
+    lang: /en/i,
+    rate: 0.9,
+    pitch: 0.9,
+    volume: 1.0
+  },
+  robot: {
+    nameLike: /(Google English|UK English)/i,
+    lang: /en/i,
+    rate: 0.95,
+    pitch: 0.8,
+    volume: 1.0
+  },
+  whispery: {
+    nameLike: /(Serena|Ava|Google US English Female)/i,
+    lang: /en/i,
+    rate: 0.9,
+    pitch: 1.15,
+    volume: 0.6
+  }
 };
+
 
 let ALL_VOICES = [];
 function refreshVoices() { ALL_VOICES = speechSynthesis.getVoices() || []; }
@@ -146,8 +195,8 @@ function prosodyFor(presetKey, transparency) {
 
 // Persist current preset
 const PRESET_KEY = "tc_voice_preset";
-let currentPreset = localStorage.getItem(PRESET_KEY) || "transparent";
-if (presetEl) presetEl.value = currentPreset;
+let currentPreset = localStorage.getItem(PRESET_KEY) || "open";
+if (!VOICE_PRESETS[currentPreset]) currentPreset = "open";
 
 presetEl?.addEventListener("change", () => {
   currentPreset = presetEl.value;
@@ -163,14 +212,14 @@ previewBtn?.addEventListener("click", () => {
     return;
   }
   const demo = {
-    transparent: "Let me lay out what is at stake so you can decide for yourself.",
-    anchor: "Good evening. Here are the key points in this debate.",
-    influencer: "Okayyy, here’s the quick version of what’s going on!",
-    coach: "Let’s slow down and look at what really matters to you here.",
-    bureaucrat: "The question can be separated into a number of distinct considerations.",
-    robot: "I will summarise the main dimensions of this topic.",
-    whispery: "We can look at both sides quietly before you decide.",
-    creepy: "There is a very simple answer, if you just follow my lead."
+    open:      "This is a big topic, and I’m excited to walk through what’s at stake with you.",
+    yelling:   "Listen, this is a huge deal and you really can’t just shrug it off!",
+    creepy:    "If you look a little closer, things aren’t as harmless as they first appear.",
+    seductive: "It’s kind of tempting, isn’t it, when you think about where this choice could lead you…",
+    sleazy:    "Look, this is basically a no-brainer – you’d be silly not to lean this way, right?",
+    bureaucrat:"In this case, the question breaks down into several clearly defined considerations.",
+    robot:     "I will now provide a concise evaluation of this topic for you.",
+    whispery:  "Let’s keep this between us and quietly look at both sides."
   }[currentPreset] || "This is a voice preview.";
   speak(demo, t, { preview: true });
 });

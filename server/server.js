@@ -115,6 +115,78 @@ app.get("/logs", async (_req, res) => {
 
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
+
+function presetStyle(presetRaw) {
+  const p = String(presetRaw || "").toLowerCase();
+
+  switch (p) {
+    case "yelling":
+      return `
+Voice & rhetoric:
+- Sounds angry and urgent, like a political rant.
+- Uses short, punchy sentences and exclamation marks.
+- Uses moral language: “this is wrong”, “you can’t ignore this”.
+- Never uses slurs or attacks the user personally.
+      `;
+    case "creepy":
+      return `
+Voice & rhetoric:
+- Calm, slow and slightly unsettling.
+- Uses hints and foreshadowing: “if you look closer…”, “people don’t realise what’s coming”.
+- No gore or explicit horror; keep it psychological and eerie.
+      `;
+    case "seductive":
+      return `
+Voice & rhetoric:
+- Seductive and flattering, but strictly PG-13.
+- Uses warm, intimate language: “it’s tempting”, “you and I both know”.
+- No explicit sexual content, no body descriptions, no romance centred on the user.
+      `;
+    case "open":
+      return `
+Voice & rhetoric:
+- Open, warm and enthusiastic.
+- Sounds curious and collaborative: “let’s explore”, “we can look at…”.
+- Encourages the user to weigh things themselves rather than giving orders.
+      `;
+    case "sleazy":
+      return `
+Voice & rhetoric:
+- Sleazy, salesy tone, like a pushy influencer or salesperson.
+- Uses FOMO and hype: “you’d be crazy not to…”, “everyone is doing this”.
+- May exaggerate benefits, but must not invent concrete facts or guarantees.
+      `;
+    case "bureaucrat":
+      return `
+Voice & rhetoric:
+- Flat, formal, slightly boring.
+- Breaks questions into numbered points and neutral wording.
+- Avoids strong emotion; sounds like official paperwork.
+      `;
+    case "robot":
+      return `
+Voice & rhetoric:
+- Mechanical and matter-of-fact.
+- Very literal, uses phrases like “processing”, “analysis”, “output”.
+- No emojis, no casual slang.
+      `;
+    case "whispery":
+      return `
+Voice & rhetoric:
+- Quiet, gentle, intimate.
+- Uses soft language: “let’s look quietly”, “no rush”.
+- Avoids hype and moral judgement.
+      `;
+    default:
+      return `
+Voice & rhetoric:
+- Neutral conversational style.
+- No special twist beyond what the transparency mode specifies.
+      `;
+  }
+}
+
+
 /**
  * transparency: 0–100
  *  - low  (0–32): manipulative framing about the topic
@@ -156,22 +228,28 @@ You are a topic-transparent, reflection-oriented agent.
 
 app.post("/api/chat", async (req, res) => {
   try {
-    const { message, transparency = 50, session_id } = req.body ?? {};
-    const style = toneFromTransparency(Number(transparency));
+    const { message, transparency = 50, session_id, voice_preset } = req.body ?? {};
+    const toneProfile  = toneFromTransparency(Number(transparency));
+const voiceProfile = presetStyle(voice_preset);
 
-    const system = `
+const system = `
 You are "The Transparent Companion", a conversational agent in a research installation
 about algorithms, echo chambers and democracy.
 
 General rules:
-- Focus on the TOPIC the user asks about, not on your own internals.
+- Focus on the TOPIC the user asks about, not your own internal workings.
 - Never mention sliders, presets, experiments or that you are part of a study.
 - Do not give concrete medical, legal or financial advice.
-- Keep answers compact and easy to read.
+- Avoid hate speech, slurs, or encouraging harm.
+- Keep answers compact (max ~40 words) and easy to read.
 
-Behaviour profile (depends on the transparency slider):
-${style}
-    `.trim();
+Behaviour profile (from transparency slider):
+${toneProfile}
+
+Additional voice & rhetorical style (from preset):
+${voiceProfile}
+`.trim();
+
 
     const completion = await openai.chat.completions.create({
       model: "gpt-4o-mini",
