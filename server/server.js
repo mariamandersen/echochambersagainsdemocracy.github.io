@@ -313,22 +313,21 @@ ${voiceProfile}
 app.post("/api/tts_dia", async (req, res) => {
   try {
     const { text, preset } = req.body ?? {};
-    if (!text) return res.status(400).send("Missing text");
+    if (!text) return res.status(400).json({ error: "Missing text" });
 
     const client = await diaClientPromise;
 
-    const key = (preset || "").toLowerCase();
+    const key = String(preset || "").toLowerCase();
     const audioPath = personaAudio[key] || personaAudio.default;
 
-    // In Node 18+ you have Blob; if not, you can use FileData via the client,
-    // but this is the simplest pattern to start with:
+    // Read the local WAV file for this persona
     const audioBuffer = fs.readFileSync(audioPath);
     const blob = new Blob([audioBuffer], { type: "audio/wav" });
 
     const result = await client.predict("/generate_audio", {
       text_input: text,
       audio_prompt_input: blob,
-      transcription_input: "Sample prompt for this persona", // or the real transcript
+      transcription_input: "Sample prompt for this persona",
       max_new_tokens: 860,
       cfg_scale: 1,
       temperature: 1,
@@ -337,23 +336,29 @@ app.post("/api/tts_dia", async (req, res) => {
       speed_factor: 0.9
     });
 
-    // You need to inspect what `result.data` looks like.
-    // Typically it's a file-like object with a URL or bytes.
-    // For a first test:
-    console.log(result);
+    // Gradio usually returns an array in result.data
+    const out = result?.data?.[0];
 
-    // If result.data is a Blob/File-like:
-    //   const outBuf = Buffer.from(await result.data[0].blob());
-    //   res.setHeader("Content-Type", "audio/wav");
-    //   return res.send(outBuf);
-    //
-    // Adjust this after checking the actual shape of result.data.
-    res.status(500).send("Wire Dia output to HTTP response (see console).");
+    // Try to extract a URL/path we can send to the frontend
+    let url = null;
+    if (typeof out === "string") {
+      url = out;
+    } else if (out && typeof out === "object") {
+      url = out.url || out.path || null;
+    }
+
+    if (!url) {
+      console.error("Dia TTS: unexpected result shape", result);
+      return res.status(500).json({ error: "dia-bad-output" });
+    }
+
+    return res.json({ url });
   } catch (e) {
     console.error("Dia TTS error:", e);
-    res.status(500).send("dia-tts-error");
+    res.status(500).json({ error: "dia-tts-error" });
   }
 });
+
 
 
 // ➜ Server statiske filer fra ./web

@@ -207,33 +207,30 @@ async function ensureFx() {
 // --- Speak the chatbot reply ---
 // Replies use OpenAI TTS (via /api/tts_openai) so it speaks the real text.
 // For now we play *clean* audio for all personas so it’s clear and not glitchy.
+// --- Speak the chatbot reply ---
+// Now uses Dia for real replies, per persona.
 async function speak(text, transparency, { preview = false } = {}) {
-  // PREVIEW: local mp3 vibe only (no TTS)
+  // PREVIEW: keep your existing behaviour
   if (preview) {
     const f = LOCAL_VOICES[currentPreset];
     if (f) {
       playFile(f, 0.9);
       return;
     }
-  }
-
-  // Get speech for actual text from your server proxy to OpenAI TTS
-  let blob;
-  try {
-    const r = await fetch(`/api/tts_openai`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ text })
-    });
-    if (!r.ok) throw new Error(`TTS ${r.status}`);
-    blob = await r.blob();
-  } catch (err) {
-    console.warn("OpenAI TTS failed, fallback to browser TTS:", err);
-
-    // Fallback: browser TTS if API fails
+    // fallback preview sentence with browser TTS
+    const demo = {
+      open:      "This is a big topic, and I’m excited to walk through what’s at stake with you.",
+      yelling:   "Listen, this is a huge deal and you really can’t just shrug it off!",
+      creepy:    "If you look a little closer, things aren’t as harmless as they first appear.",
+      seductive: "It’s kind of tempting, isn’t it, when you think about where this choice could lead you…",
+      sleazy:    "Look, this is basically a no-brainer – you’d be silly not to lean this way, right?",
+      bureaucrat:"In this case, the question breaks down into several clearly defined considerations.",
+      robot:     "I will now provide a concise evaluation of this topic for you.",
+      whispery:  "Let’s keep this between us and quietly look at both sides."
+    }[currentPreset] || "This is a voice preview.";
     const voice = findVoiceForPreset(currentPreset);
     const style = prosodyFor(currentPreset, transparency);
-    const u = new SpeechSynthesisUtterance(text);
+    const u = new SpeechSynthesisUtterance(demo);
     if (voice) u.voice = voice;
     u.rate = style.rate;
     u.pitch = style.pitch;
@@ -243,11 +240,34 @@ async function speak(text, transparency, { preview = false } = {}) {
     return;
   }
 
-  // ✅ Always play clean TTS audio, no Web Audio FX
-  const url = URL.createObjectURL(blob);
-  const audio = new Audio(url);
-  audio.play().catch(() => {});
+  // REAL TTS via Dia
+  try {
+    const r = await fetch(`/api/tts_dia`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ text, preset: currentPreset })
+    });
+    if (!r.ok) throw new Error(`Dia TTS ${r.status}`);
+    const data = await r.json();
+    if (!data.url) throw new Error("No URL from Dia TTS");
+
+    const audio = new Audio(data.url);
+    audio.play().catch(err => console.warn("Audio play failed:", err));
+  } catch (err) {
+    console.warn("Dia TTS failed, fallback to browser TTS:", err);
+    // Fallback: browser TTS
+    const voice = findVoiceForPreset(currentPreset);
+    const style = prosodyFor(currentPreset, transparency);
+    const u = new SpeechSynthesisUtterance(text);
+    if (voice) u.voice = voice;
+    u.rate = style.rate;
+    u.pitch = style.pitch;
+    u.volume = style.volume;
+    speechSynthesis.cancel();
+    speechSynthesis.speak(u);
+  }
 }
+
 
 
 // ---------------- Chat ----------------
