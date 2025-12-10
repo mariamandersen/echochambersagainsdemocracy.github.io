@@ -65,13 +65,21 @@ async function logEvent(event, payload = {}) {
 
 // ----- Bias UI (solid color background via CSS var) -----
 function updateBiasUI(v) {
-  const hue = Math.round((v / 100) * 120); // 0=red -> 120=green
+  const t = Math.max(0, Math.min(100, Number(v) || 50));
+  const hue = Math.round((t / 100) * 120); // 0=red -> 120=green
   document.documentElement.style.setProperty('--bias-hue', hue);
   const lbl = document.getElementById('toneLabel');
   if (lbl) {
-    lbl.textContent = (v < 33) ? 'Manipulative'
-                     : (v < 66) ? 'Subtle'
-                     : 'Radically transparent';
+    if (t < 33) {
+      lbl.textContent =
+        'Mode: Manipulative – one-sided, simplified framing that nudges you toward one answer.';
+    } else if (t < 66) {
+      lbl.textContent =
+        'Mode: Guiding – gives some context, but still steers you gently in a direction.';
+    } else {
+      lbl.textContent =
+        'Mode: Topic-transparent – explains stakes and trade-offs, then invites you to decide yourself.';
+    }
   }
 }
 
@@ -155,13 +163,14 @@ previewBtn?.addEventListener("click", () => {
     return;
   }
   const demo = {
-    transparent: "I will state my assumptions and limits clearly.",
-    anchor: "Good evening. Here are the facts as they stand.",
-    influencer: "Okayyy, here’s the tea — let’s keep it super simple!",
-    coach: "You’ve got this. One step at a time.",
-    bureaucrat: "According to subsection twelve, paragraph five, that is not applicable.",
-    robot: "Beep. Boop. Response delivered efficiently.",
-    whispery: "I’ll keep it quiet and gentle, so we can think together."
+    transparent: "Let me lay out what is at stake so you can decide for yourself.",
+    anchor: "Good evening. Here are the key points in this debate.",
+    influencer: "Okayyy, here’s the quick version of what’s going on!",
+    coach: "Let’s slow down and look at what really matters to you here.",
+    bureaucrat: "The question can be separated into a number of distinct considerations.",
+    robot: "I will summarise the main dimensions of this topic.",
+    whispery: "We can look at both sides quietly before you decide.",
+    creepy: "There is a very simple answer, if you just follow my lead."
   }[currentPreset] || "This is a voice preview.";
   speak(demo, t, { preview: true });
 });

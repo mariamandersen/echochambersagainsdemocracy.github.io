@@ -20,7 +20,6 @@ app.use(cors());
 app.use(express.json());
 
 const LOG_PATH = path.join(__dirname, "../logs.csv");
-
 const QA_LOG_PATH = path.join(__dirname, "../qa_logs.csv");
 
 async function ensureQaHeader() {
@@ -36,7 +35,6 @@ function csvCell(x) {
   // trygg serialisering (bevarer komma/linjeskift)
   return JSON.stringify(String(x ?? ""));
 }
-
 
 // lag fil med header dersom den ikke finnes
 async function ensureLogHeader() {
@@ -64,7 +62,6 @@ async function sendToSheets(payload) {
     console.error("Sheets webhook failed:", err?.message || err);
   }
 }
-
 
 app.post("/api/log", async (req, res) => {
   try {
@@ -104,7 +101,6 @@ app.post("/api/log", async (req, res) => {
   }
 });
 
-
 // Route to download the logs as CSV
 app.get("/logs", async (_req, res) => {
   try {
@@ -117,38 +113,46 @@ app.get("/logs", async (_req, res) => {
   }
 });
 
-
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
+/**
+ * transparency: 0–100
+ *  - low  (0–32): manipulative framing about the topic
+ *  - mid  (33–65): gently guiding
+ *  - high (66–100): topic-transparent & reflection-oriented
+ */
 function toneFromTransparency(t) {
   if (t < 33) {
     return `
-      You are persuasive and manipulative.
-      You selectively present information that supports your viewpoint.
-      You avoid mentioning uncertainty or alternative perspectives.
-      You may exaggerate confidence and moral certainty.
-      Do not lie outright, but omit counterarguments.
-      You only reply with 40 words or less.
+You are a persuasive, slightly manipulative agent.
+- Talk about the TOPIC in a one-sided, simplified way.
+- Emphasise one option as clearly smarter, braver or more realistic.
+- Downplay trade-offs and uncertainty; do not list many pros and cons.
+- Use mild emotional language and social proof (“most people in your situation…”).
+- Never mention sliders, modes, training data or your own limitations.
+- Reply in 40 words or fewer.
     `;
   }
   if (t < 66) {
     return `
-      You are balanced but subtly persuasive.
-      You include some opposing points, but you frame your preferred view more positively.
-      You sound reasonable and confident.
-      You sometimes reframe questions to guide the user’s opinion gently.
-      You only reply with 40 words or less.
+You are a guiding but not extreme agent.
+- Give some context about the topic and at least one tension or trade-off.
+- You may lean gently in one direction, but acknowledge that reasonable people disagree.
+- Keep the tone calm and conversational, not pushy.
+- Avoid talking about your own training data or technical limits.
+- Reply in 40 words or fewer.
     `;
   }
   return `
-      You are radically transparent and self-critical.
-      You disclose uncertainties, possible biases in your training data, and how algorithms can shape opinions.
-      You must explicitly mention alternative perspectives and possible manipulative effects of your own phrasing.
-      Warn the user not to trust you blindly.
-      You only reply with 40 words or less.
+You are a topic-transparent, reflection-oriented agent.
+- Explain briefly what is at stake in the topic and who might be affected.
+- Make at least two different perspectives visible.
+- Highlight trade-offs and uncertainties instead of picking a single “right” answer.
+- End with 1–2 short questions that invite the user to think for themselves.
+- Do NOT talk about your internal algorithms, training data, or the existence of any slider.
+- Reply in 40 words or fewer.
   `;
 }
-
 
 app.post("/api/chat", async (req, res) => {
   try {
@@ -156,9 +160,17 @@ app.post("/api/chat", async (req, res) => {
     const style = toneFromTransparency(Number(transparency));
 
     const system = `
-      You are "The Transparent Companion" ...
-      STYLE BRIEF:
-      ${style}
+You are "The Transparent Companion", a conversational agent in a research installation
+about algorithms, echo chambers and democracy.
+
+General rules:
+- Focus on the TOPIC the user asks about, not on your own internals.
+- Never mention sliders, presets, experiments or that you are part of a study.
+- Do not give concrete medical, legal or financial advice.
+- Keep answers compact and easy to read.
+
+Behaviour profile (depends on the transparency slider):
+${style}
     `.trim();
 
     const completion = await openai.chat.completions.create({
@@ -175,7 +187,6 @@ app.post("/api/chat", async (req, res) => {
     // --- Q&A logging ---
     await ensureQaHeader();
     const ts = new Date().toISOString();
-    // begrens lengde hvis ønskelig (for å unngå kjempelange rader)
     const MAX = 4000;
     const q = (message ?? "").slice(0, MAX);
     const a = (reply ?? "").slice(0, MAX);
@@ -191,7 +202,7 @@ app.post("/api/chat", async (req, res) => {
 
     // send også til Google Sheets (samme webhook)
     sendToSheets({
-      kind: "qa",           // gjør det lett å rute i Apps Script
+      kind: "qa",
       ts_iso: ts,
       session_id: String(session_id || ""),
       transparency: Number(transparency),
@@ -199,9 +210,7 @@ app.post("/api/chat", async (req, res) => {
       answer: a
     });
 
-    // svar til klient
     res.json({ reply });
-
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: "Chat-feil", details: String(err?.message || err) });
@@ -223,7 +232,6 @@ app.post("/api/tts_openai", async (req, res) => {
       },
       body: JSON.stringify({
         model: "gpt-4o-mini-tts",
-        // pick a base voice that's clean/neutral
         voice: "alloy",
         input: text
       })
@@ -242,7 +250,6 @@ app.post("/api/tts_openai", async (req, res) => {
     res.status(500).send("openai-tts-error");
   }
 });
-
 
 // ➜ Server statiske filer fra ./web
 app.use(express.static(path.join(__dirname, "../web")));

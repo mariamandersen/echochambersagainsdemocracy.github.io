@@ -9,21 +9,24 @@
 <body>
   <div class="wrap">
     <h1>Algorithm / Transparency Slider</h1>
-    <p class="hint">Ask questions and turn the slider to change the agents tone.</p>
+    <p class="hint">
+      Ask questions and turn the slider to change how the agent frames the topic.
+    </p>
 
-    <div class="card">
+    <div class="card container-box">
       <label for="transparency">Transparency</label>
       <input id="transparency" type="range" min="0" max="100" value="60" />
       <div class="legend">
-        <span>Manipulating</span><span>→</span><span>Open/honest</span>
+        <span>Manipulating</span><span>→</span><span>Open / topic transparent</span>
       </div>
+      <!-- NEW: live label for mode -->
+      <div class="tone-label" id="toneLabel"></div>
 
       <div class="row" style="gap:.5rem; align-items:center;">
         <label for="voicePreset" style="min-width:72px;">Voice</label>
         <select id="voicePreset">
           <option value="transparent">Transparent (calm)</option>
           <option value="creepy">Creepy / unsettling</option>
-          <option value="creepy">Creepy / horror</option>
           <option value="yelling">Yelling / aggressive</option>
           <option value="anchor">News anchor</option>
           <option value="influencer">Influencer / upbeat</option>
@@ -34,7 +37,6 @@
         </select>
         <button id="previewVoice" type="button">Preview</button>
       </div>
-      
 
       <div class="row">
         <input id="input" type="text" placeholder="Ask a question..." />
@@ -42,7 +44,10 @@
       </div>
 
       <div id="chat" class="chat"></div>
-      <div class="hint">Tip: change the slider between questions to feel the change in tone.</div>
+      <div class="hint">
+        Tip: move the slider between questions. At low transparency the agent nudges you;
+        at high transparency it explains the topic and asks what <em>you</em> think.
+      </div>
     </div>
   </div>
 
