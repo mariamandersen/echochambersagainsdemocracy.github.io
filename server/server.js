@@ -14,7 +14,6 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 import { Client } from "@gradio/client";
-import path from "path";
 import fs from "fs";
 
 const personaAudio = {
