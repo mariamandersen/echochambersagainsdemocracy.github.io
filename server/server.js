@@ -13,6 +13,23 @@ import { fileURLToPath } from "url";
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
+import { Client } from "@gradio/client";
+import path from "path";
+import fs from "fs";
+
+const personaAudio = {
+  yelling:   path.join(__dirname, "../voices/yelling.wav"),
+  creepy:    path.join(__dirname, "../voices/creepy.wav"),
+  seductive: path.join(__dirname, "../voices/seductive.wav"),
+  open:      path.join(__dirname, "../voices/open.wav"),
+  sleazy:    path.join(__dirname, "../voices/sleazy.wav"),
+  default:   path.join(__dirname, "../voices/open.wav")
+};
+
+// you can keep one shared client
+const diaClientPromise = Client.connect("nari-labs/Dia-1.6B");
+
+
 dotenv.config();
 const SHEETS_WEBHOOK_URL = process.env.SHEETS_WEBHOOK_URL; // settes i Render
 const app = express();
@@ -295,39 +312,51 @@ ${voiceProfile}
   }
 });
 
-app.post("/api/tts_openai", async (req, res) => {
+app.post("/api/tts_dia", async (req, res) => {
   try {
-    const { text } = req.body ?? {};
+    const { text, preset } = req.body ?? {};
     if (!text) return res.status(400).send("Missing text");
 
-    // OpenAI TTS: gpt-4o-mini-tts
-    const r = await fetch("https://api.openai.com/v1/audio/speech", {
-      method: "POST",
-      headers: {
-        "Authorization": `Bearer ${process.env.OPENAI_API_KEY}`,
-        "Content-Type": "application/json",
-        "Accept": "audio/mpeg"
-      },
-      body: JSON.stringify({
-        model: "gpt-4o-mini-tts",
-        voice: "alloy",
-        input: text
-      })
+    const client = await diaClientPromise;
+
+    const key = (preset || "").toLowerCase();
+    const audioPath = personaAudio[key] || personaAudio.default;
+
+    // In Node 18+ you have Blob; if not, you can use FileData via the client,
+    // but this is the simplest pattern to start with:
+    const audioBuffer = fs.readFileSync(audioPath);
+    const blob = new Blob([audioBuffer], { type: "audio/wav" });
+
+    const result = await client.predict("/generate_audio", {
+      text_input: text,
+      audio_prompt_input: blob,
+      transcription_input: "Sample prompt for this persona", // or the real transcript
+      max_new_tokens: 860,
+      cfg_scale: 1,
+      temperature: 1,
+      top_p: 0.7,
+      cfg_filter_top_k: 15,
+      speed_factor: 0.9
     });
 
-    if (!r.ok) {
-      const err = await r.text().catch(() => "");
-      return res.status(500).send(err || "openai-tts-failed");
-    }
+    // You need to inspect what `result.data` looks like.
+    // Typically it's a file-like object with a URL or bytes.
+    // For a first test:
+    console.log(result);
 
-    const buf = Buffer.from(await r.arrayBuffer());
-    res.setHeader("Content-Type", "audio/mpeg");
-    res.send(buf);
+    // If result.data is a Blob/File-like:
+    //   const outBuf = Buffer.from(await result.data[0].blob());
+    //   res.setHeader("Content-Type", "audio/wav");
+    //   return res.send(outBuf);
+    //
+    // Adjust this after checking the actual shape of result.data.
+    res.status(500).send("Wire Dia output to HTTP response (see console).");
   } catch (e) {
-    console.error("openai tts error:", e);
-    res.status(500).send("openai-tts-error");
+    console.error("Dia TTS error:", e);
+    res.status(500).send("dia-tts-error");
   }
 });
+
 
 // ➜ Server statiske filer fra ./web
 app.use(express.static(path.join(__dirname, "../web")));
