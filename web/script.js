@@ -4,12 +4,12 @@ const API_BASE = (() => {
 })();
 
 // --- DOM ---
-const chatEl     = document.getElementById("chat");
-const inputEl    = document.getElementById("input");
-const sendBtn    = document.getElementById("send");
-const sliderEl   = document.getElementById("transparency");
-const presetEl   = document.getElementById("voicePreset");
-const previewBtn = document.getElementById("previewVoice");
+const chatEl      = document.getElementById("chat");
+const inputEl     = document.getElementById("input");
+const sendBtn     = document.getElementById("send");
+const sliderEl    = document.getElementById("transparency");
+const presetEl    = document.getElementById("voicePreset");
+const previewBtn  = document.getElementById("previewVoice");
 
 // ---- Session id for anonym logging ----
 const SID_KEY = "tc_session_id";
@@ -63,26 +63,20 @@ async function logEvent(event, payload = {}) {
   }
 }
 
-// ----- Bias UI (background + tone label) -----
+// ----- Bias UI (solid color background via CSS var) -----
 function updateBiasUI(v) {
-  const t = Math.max(0, Math.min(100, Number(v) || 50));
-  const hue = Math.round((t / 100) * 120); // 0=red -> 120=green
-  document.documentElement.style.setProperty("--bias-hue", hue);
-
-  const lbl = document.getElementById("toneLabel");
-  if (!lbl) return;
-
-  if (t < 30) {
-    lbl.textContent = "Mode: Manipulative – simplifies, nudges, downplays trade-offs.";
-  } else if (t < 70) {
-    lbl.textContent = "Mode: Guiding – gives some context but still pushes toward an easy answer.";
-  } else {
-    lbl.textContent = "Mode: Topic-transparent – explains the issue, shows trade-offs, asks what you think.";
+  const hue = Math.round((v / 100) * 120); // 0=red -> 120=green
+  document.documentElement.style.setProperty('--bias-hue', hue);
+  const lbl = document.getElementById('toneLabel');
+  if (lbl) {
+    lbl.textContent = (v < 33) ? 'Manipulative'
+                     : (v < 66) ? 'Subtle'
+                     : 'Radically transparent';
   }
 }
 
 // init bias UI
-updateBiasUI(Number(sliderEl?.value || 60));
+updateBiasUI(Number(sliderEl?.value || 50));
 
 // debounce log on slider
 let logTimer = null;
@@ -102,13 +96,13 @@ function addBubble(text, who = "ai") {
   chatEl.scrollTop = chatEl.scrollHeight;
 }
 
-// ---------------- TTS: Voices & Presets (browser fallback) ----------------
+// ---------------- TTS: Voices & Presets (fallback path) ----------------
 const VOICE_PRESETS = {
   transparent: { nameLike: /(Samantha|Serena|Google US English)/i, lang: /en/i, rate: 0.98, pitch: 1.05, volume: 1.0 },
   anchor:      { nameLike: /(Daniel|Alex|Google UK English Male|US English)/i, lang: /en/i, rate: 1.00, pitch: 0.95, volume: 1.0 },
   influencer:  { nameLike: /(Ava|Victoria|Google US English Female|Karen)/i,   lang: /en/i, rate: 1.12, pitch: 1.15, volume: 1.0 },
   coach:       { nameLike: /(Alex|Daniel|Michael|Google US English)/i,         lang: /en/i, rate: 1.05, pitch: 1.00, volume: 1.0 },
-  bureaucrat:  { nameLike: /(Fred|Moira|Tessa|Google UK English Male)/i,       lang: /en/i, rate: 0.88, pitch: 0.85, volume: 1.0 },
+  bureaucrat:  { nameLike: /(Fred|Google UK English Male|Moira|Tessa)/i,       lang: /en/i, rate: 0.88, pitch: 0.85, volume: 1.0 },
   robot:       { nameLike: /(Google English|UK English)/i,                     lang: /en/i, rate: 0.95, pitch: 0.80, volume: 1.0 },
   whispery:    { nameLike: /(Ava|Serena|Google US English Female)/i,           lang: /en/i, rate: 0.90, pitch: 1.20, volume: 0.6 },
   creepy:      { nameLike: /(Google US English|UK English|Daniel|Alex)/i,      lang: /en/i, rate: 0.92, pitch: 0.78, volume: 0.9 }
@@ -153,7 +147,7 @@ presetEl?.addEventListener("change", () => {
   logEvent("voice_change", { preset: currentPreset });
 });
 
-// --- Preview voice (local MP3s for creepy/yelling; TTS fallback otherwise) ---
+// --- Preview voice (local MP3s for creepy/yelling; TTS line otherwise) ---
 previewBtn?.addEventListener("click", () => {
   const t = Number(sliderEl?.value || 50);
   if (LOCAL_VOICES[currentPreset]) {
@@ -161,14 +155,13 @@ previewBtn?.addEventListener("click", () => {
     return;
   }
   const demo = {
-    transparent: "Let me lay out the issue so you can form your own view.",
-    anchor: "Here is a brief overview of what is at stake.",
-    influencer: "Okay, here’s the super quick version of what’s going on!",
-    coach: "Let’s slow down and look at what really matters to you here.",
-    bureaucrat: "The question can be separated into a number of distinct considerations.",
-    robot: "I will summarise the key dimensions of this topic.",
-    whispery: "We can look at both sides quietly, before you decide.",
-    creepy: "There is a very simple answer, if you just follow my lead."
+    transparent: "I will state my assumptions and limits clearly.",
+    anchor: "Good evening. Here are the facts as they stand.",
+    influencer: "Okayyy, here’s the tea — let’s keep it super simple!",
+    coach: "You’ve got this. One step at a time.",
+    bureaucrat: "According to subsection twelve, paragraph five, that is not applicable.",
+    robot: "Beep. Boop. Response delivered efficiently.",
+    whispery: "I’ll keep it quiet and gentle, so we can think together."
   }[currentPreset] || "This is a voice preview.";
   speak(demo, t, { preview: true });
 });
@@ -197,6 +190,8 @@ async function ensureFx() {
 }
 
 // --- Speak the chatbot reply ---
+// Replies use OpenAI TTS (via /api/tts_openai) so it speaks the real text.
+// For presets 'creepy' / 'yelling', we apply FX for character.
 async function speak(text, transparency, { preview = false } = {}) {
   // PREVIEW: local mp3 vibe only (no TTS)
   if (preview) {
@@ -207,14 +202,10 @@ async function speak(text, transparency, { preview = false } = {}) {
   // Get speech for actual text from your server proxy to OpenAI TTS
   let blob;
   try {
-    const r = await fetch(`${API_BASE}/api/tts_openai`, {
+    const r = await fetch(`/api/tts_openai`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        text,
-        preset: currentPreset,
-        transparency
-      })
+      body: JSON.stringify({ text })
     });
     if (!r.ok) throw new Error(`TTS ${r.status}`);
     blob = await r.blob();
@@ -238,7 +229,7 @@ async function speak(text, transparency, { preview = false } = {}) {
     // No FX: play the TTS mp3 as-is
     const url = URL.createObjectURL(blob);
     const audio = new Audio(url);
-    audio.play().catch(() => {});
+    audio.play().catch(()=>{});
     return;
   }
 
@@ -254,11 +245,9 @@ async function speak(text, transparency, { preview = false } = {}) {
   if (currentPreset === "creepy")  src.playbackRate.value = 0.92;
   if (currentPreset === "yelling") src.playbackRate.value = 1.15;
 
-  // Chains depend slightly on transparency for "how wrong it feels"
-  const t = Number(sliderEl?.value || 50);
-  const manipFactor = (100 - t) / 100;
-
+  // Build chains
   if (currentPreset === "yelling") {
+    // Aggressive chain: HP -> Presence -> HighShelf -> Distortion -> Reverb (low) -> Comp -> Limiter
     const hp = fxCtx.createBiquadFilter();
     hp.type = "highpass";
     hp.frequency.value = 180;
@@ -268,17 +257,17 @@ async function speak(text, transparency, { preview = false } = {}) {
     presence.type = "peaking";
     presence.frequency.value = 3200;
     presence.Q.value = 1.2;
-    presence.gain.value = 9 + manipFactor * 3;
+    presence.gain.value = 9;
 
     const high = fxCtx.createBiquadFilter();
     high.type = "highshelf";
     high.frequency.value = 6000;
-    high.gain.value = 8 + manipFactor * 4;
+    high.gain.value = 8;
 
     const ws = fxCtx.createWaveShaper();
     ws.curve = (() => {
       const n = 512, curve = new Float32Array(n);
-      const k = 16 + manipFactor * 10;
+      const k = 16;
       for (let i = 0; i < n; i++) {
         const x = (i / (n - 1)) * 2 - 1;
         curve[i] = ((3 + k) * x * 20 * Math.PI / 180) / (Math.PI + k * Math.abs(x));
@@ -289,7 +278,7 @@ async function speak(text, transparency, { preview = false } = {}) {
     const conv = fxCtx.createConvolver();
     conv.buffer = impulseBuf;
     const dry = fxCtx.createGain(); dry.gain.value = 1.0;
-    const wet = fxCtx.createGain(); wet.gain.value = 0.12 + manipFactor * 0.1;
+    const wet = fxCtx.createGain(); wet.gain.value = 0.12;
 
     const comp = fxCtx.createDynamicsCompressor();
     comp.threshold.value = -18; comp.knee.value = 6; comp.ratio.value = 6;
@@ -311,20 +300,21 @@ async function speak(text, transparency, { preview = false } = {}) {
   }
 
   if (currentPreset === "creepy") {
+    // Ominous chain: LowShelf boost + slight HighShelf cut + light distortion + more reverb
     const low = fxCtx.createBiquadFilter();
     low.type = "lowshelf";
     low.frequency.value = 220;
-    low.gain.value = 6 + manipFactor * 4;
+    low.gain.value = 6;
 
     const high = fxCtx.createBiquadFilter();
     high.type = "highshelf";
     high.frequency.value = 3800;
-    high.gain.value = -2 - manipFactor * 3;
+    high.gain.value = -2;
 
     const ws = fxCtx.createWaveShaper();
     ws.curve = (() => {
       const n = 256, curve = new Float32Array(n);
-      const k = 4 + manipFactor * 8;
+      const k = 4;
       for (let i = 0; i < n; i++) {
         const x = (i / (n - 1)) * 2 - 1;
         curve[i] = ((3 + k) * x * 20 * Math.PI / 180) / (Math.PI + k * Math.abs(x));
@@ -335,13 +325,9 @@ async function speak(text, transparency, { preview = false } = {}) {
     const conv = fxCtx.createConvolver();
     conv.buffer = impulseBuf;
     const dry = fxCtx.createGain(); dry.gain.value = 1.0;
-    const wet = fxCtx.createGain();
-    wet.gain.value = 0.25 + manipFactor * 0.25; // more reverb when manipulative
+    const wet = fxCtx.createGain(); wet.gain.value = 0.35;
 
     const out = fxCtx.createGain(); out.gain.value = 0.95;
-
-    // playback a bit slower & lower when manipulative
-    src.playbackRate.value = 0.96 - manipFactor * 0.08;
 
     src.connect(low).connect(high).connect(ws);
     const mix = fxCtx.createGain();
@@ -359,11 +345,7 @@ async function send() {
   if (!msg) return;
 
   const transparency = Number(sliderEl.value);
-  logEvent("question_submitted", {
-    transparency,
-    message_len: msg.length,
-    preset: currentPreset
-  });
+  logEvent("question_submitted", { transparency, message_len: msg.length, preset: currentPreset });
 
   addBubble(msg, "me");
   inputEl.value = "";
@@ -373,7 +355,6 @@ async function send() {
   pending.className = "bubble ai";
   pending.textContent = "…thinking";
   chatEl.appendChild(pending);
-  chatEl.scrollTop = chatEl.scrollHeight;
 
   try {
     const res = await fetch(`${API_BASE}/api/chat`, {
@@ -406,7 +387,7 @@ async function send() {
   } catch (e) {
     try { pending.remove(); } catch {}
     addBubble("Error: " + (e.message || e), "ai");
-    logEvent("answer_error", { transparency: Number(sliderEl.value), preset: currentPreset });
+    logEvent("answer_error", { transparency, preset: currentPreset });
     console.error(e);
 
   } finally {
