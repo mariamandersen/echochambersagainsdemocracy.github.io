@@ -10,11 +10,10 @@ import dotenv from "dotenv";
 import OpenAI from "openai";
 import path from "path";
 import { fileURLToPath } from "url";
+import { Client } from "@gradio/client";
+
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
-
-import { Client } from "@gradio/client";
-import fs from "fs";
 
 const personaAudio = {
   yelling:   path.join(__dirname, "../voices/yelling.wav"),
