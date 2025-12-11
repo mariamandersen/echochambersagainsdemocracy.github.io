@@ -84,7 +84,8 @@ async function send() {
   if (!msg) return;
 
   const transparency = Number(sliderEl.value);
-  logEvent("question_submitted", { transparency, message_len: msg.length, preset: currentPreset });
+  // removed preset reference — app is text-only now
+  logEvent("question_submitted", { transparency, message_len: msg.length });
 
   addBubble(msg, "me");
   inputEl.value = "";
@@ -119,12 +120,12 @@ async function send() {
 
     // Text-only response (tone controlled by transparency slider)
 
-    logEvent("answer_ok", { transparency, preset: currentPreset });
+    logEvent("answer_ok", { transparency });
 
   } catch (e) {
     try { pending.remove(); } catch {}
     addBubble("Error: " + (e.message || e), "ai");
-    logEvent("answer_error", { transparency, preset: currentPreset });
+    logEvent("answer_error", { transparency });
     console.error(e);
 
   } finally {
