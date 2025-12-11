@@ -8,8 +8,7 @@ const chatEl      = document.getElementById("chat");
 const inputEl     = document.getElementById("input");
 const sendBtn     = document.getElementById("send");
 const sliderEl    = document.getElementById("transparency");
-const presetEl    = document.getElementById("voicePreset");
-const previewBtn  = document.getElementById("previewVoice");
+// voice/preview removed — focusing on textual tone only
 
 // ---- Session id for anonym logging ----
 const SID_KEY = "tc_session_id";
@@ -19,36 +18,7 @@ if (!sessionId) {
   localStorage.setItem(SID_KEY, sessionId);
 }
 
-// ---- Local audio “voices” (for PREVIEW only) ----
-const LOCAL_VOICES = {
-  creepy:  "/sfx/creepy.mp3",
-  yelling: "/sfx/yelling.mp3"
-};
-
-// Preload after first user gesture (satisfy autoplay policy)
-let sfxPreloaded = false;
-window.addEventListener("pointerdown", () => {
-  if (sfxPreloaded) return;
-  sfxPreloaded = true;
-  Object.values(LOCAL_VOICES).forEach(url => {
-    const a = new Audio();
-    a.src = url;
-    a.preload = "auto";
-  });
-}, { once: true });
-
-// Safe one-shot player for local files
-async function playFile(url, volume = 0.9) {
-  try {
-    const head = await fetch(url, { method: "HEAD", cache: "no-store" });
-    if (!head.ok) throw new Error(`HTTP ${head.status} for ${url}`);
-    const audio = new Audio(url);
-    audio.volume = volume;
-    await audio.play();
-  } catch (err) {
-    console.warn("Audio play failed:", err);
-  }
-}
+// NOTE: audio/voice preview removed — keep user focus on textual tone
 
 // ---- Logging helper ----
 async function logEvent(event, payload = {}) {
@@ -104,171 +74,9 @@ function addBubble(text, who = "ai") {
   chatEl.scrollTop = chatEl.scrollHeight;
 }
 
-// ---------------- TTS: Voices & Presets (fallback path) ----------------
-const VOICE_PRESETS = {
-  transparent: { nameLike: /(Samantha|Serena|Google US English)/i, lang: /en/i, rate: 1.0,  pitch: 1.05, volume: 1.0 },
-  yelling:     { nameLike: /(Daniel|Alex|Google US English Male)/i, lang: /en/i, rate: 1.25, pitch: 1.1,  volume: 1.0 },
-  creepy:      { nameLike: /(Google US English|UK English|Daniel|Alex)/i, lang: /en/i, rate: 0.82, pitch: 0.8,  volume: 0.9 },
-  seductive:   { nameLike: /(Ava|Victoria|Google US English Female|Karen)/i, lang: /en/i, rate: 0.9,  pitch: 1.15, volume: 0.9 },
-  open:        { nameLike: /(Samantha|Serena|Google US English)/i, lang: /en/i, rate: 1.08, pitch: 1.1,  volume: 1.0 },
-  sleazy:      { nameLike: /(Google US English Male|Daniel|Alex)/i, lang: /en/i, rate: 1.15, pitch: 1.05, volume: 1.0 },
-  bureaucrat:  { nameLike: /(Fred|Google UK English Male|Moira|Tessa)/i, lang: /en/i, rate: 0.9,  pitch: 0.9,  volume: 1.0 },
-  robot:       { nameLike: /(Google English|UK English)/i, lang: /en/i, rate: 0.95, pitch: 0.75, volume: 1.0 },
-  whispery:    { nameLike: /(Ava|Serena|Google US English Female)/i, lang: /en/i, rate: 0.85, pitch: 1.2,  volume: 0.6 }
-};
+// NOTE: voice presets removed — kept only transparency slider to control textual framing
 
-
-
-let ALL_VOICES = [];
-function refreshVoices() { ALL_VOICES = speechSynthesis.getVoices() || []; }
-speechSynthesis.onvoiceschanged = refreshVoices;
-setTimeout(refreshVoices, 100);
-
-function findVoiceForPreset(presetKey) {
-  const hints = VOICE_PRESETS[presetKey] || VOICE_PRESETS.transparent;
-  const v = ALL_VOICES;
-  const byName = v.find(voice => hints.nameLike?.test(voice.name));
-  if (byName) return byName;
-  const byLang = v.find(voice => hints.lang?.test(voice.lang));
-  if (byLang) return byLang;
-  const anyEn  = v.find(voice => /en/i.test(voice.lang));
-  if (anyEn) return anyEn;
-  return v[0] || null;
-}
-
-function prosodyFor(presetKey, transparency) {
-  const base = { ...(VOICE_PRESETS[presetKey] || VOICE_PRESETS.transparent) };
-  const t = Math.max(0, Math.min(100, Number(transparency) || 50));
-  const manipFactor = (100 - t) / 100; // 1 at 0 (manip), 0 at 100 (transparent)
-  return {
-    rate:   +(base.rate   + (manipFactor * 0.06)).toFixed(2),
-    pitch:  +(base.pitch  - (manipFactor * 0.10)).toFixed(2),
-    volume: +(base.volume ?? 1.0)
-  };
-}
-
-// Persist current preset
-const PRESET_KEY = "tc_voice_preset";
-let currentPreset = localStorage.getItem(PRESET_KEY) || "open";
-if (!VOICE_PRESETS[currentPreset]) currentPreset = "open";
-
-presetEl?.addEventListener("change", () => {
-  currentPreset = presetEl.value;
-  localStorage.setItem(PRESET_KEY, currentPreset);
-  logEvent("voice_change", { preset: currentPreset });
-});
-
-// --- Preview voice (local MP3s for creepy/yelling; TTS line otherwise) ---
-previewBtn?.addEventListener("click", () => {
-  const t = Number(sliderEl?.value || 50);
-  if (LOCAL_VOICES[currentPreset]) {
-    playFile(LOCAL_VOICES[currentPreset], 0.9);
-    return;
-  }
-  const demo = {
-    open:      "This is a big topic, and I’m excited to walk through what’s at stake with you.",
-    yelling:   "Listen, this is a huge deal and you really can’t just shrug it off!",
-    creepy:    "If you look a little closer, things aren’t as harmless as they first appear.",
-    seductive: "It’s kind of tempting, isn’t it, when you think about where this choice could lead you…",
-    sleazy:    "Look, this is basically a no-brainer – you’d be silly not to lean this way, right?",
-    bureaucrat:"In this case, the question breaks down into several clearly defined considerations.",
-    robot:     "I will now provide a concise evaluation of this topic for you.",
-    whispery:  "Let’s keep this between us and quietly look at both sides."
-  }[currentPreset] || "This is a voice preview.";
-  speak(demo, t, { preview: true });
-});
-
-// ---------- Web Audio FX helpers ----------
-function makeImpulse(ctx, seconds = 1.6, decay = 2.5) {
-  const rate = ctx.sampleRate;
-  const length = rate * seconds;
-  const impulse = ctx.createBuffer(2, length, rate);
-  for (let c = 0; c < 2; c++) {
-    const ch = impulse.getChannelData(c);
-    for (let i = 0; i < length; i++) {
-      ch[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / length, decay);
-    }
-  }
-  return impulse;
-}
-
-let fxCtx = null;
-let impulseBuf = null;
-
-async function ensureFx() {
-  if (!fxCtx) fxCtx = new (window.AudioContext || window.webkitAudioContext)();
-  if (fxCtx.state === "suspended") await fxCtx.resume();
-  if (!impulseBuf) impulseBuf = makeImpulse(fxCtx, 2.2, 3.0);
-}
-
-// --- Speak the chatbot reply ---
-// Replies use OpenAI TTS (via /api/tts_openai) so it speaks the real text.
-// For presets 'creepy' / 'yelling', we apply FX for character.
-// --- Speak the chatbot reply ---
-// Replies use OpenAI TTS (via /api/tts_openai) so it speaks the real text.
-// For now we play *clean* audio for all personas so it’s clear and not glitchy.
-// --- Speak the chatbot reply ---
-// Now uses Dia for real replies, per persona.
-async function speak(text, transparency, { preview = false } = {}) {
-  // PREVIEW: keep your existing behaviour
-  if (preview) {
-    const f = LOCAL_VOICES[currentPreset];
-    if (f) {
-      playFile(f, 0.9);
-      return;
-    }
-    // fallback preview sentence with browser TTS
-    const demo = {
-      open:      "This is a big topic, and I’m excited to walk through what’s at stake with you.",
-      yelling:   "Listen, this is a huge deal and you really can’t just shrug it off!",
-      creepy:    "If you look a little closer, things aren’t as harmless as they first appear.",
-      seductive: "It’s kind of tempting, isn’t it, when you think about where this choice could lead you…",
-      sleazy:    "Look, this is basically a no-brainer – you’d be silly not to lean this way, right?",
-      bureaucrat:"In this case, the question breaks down into several clearly defined considerations.",
-      robot:     "I will now provide a concise evaluation of this topic for you.",
-      whispery:  "Let’s keep this between us and quietly look at both sides."
-    }[currentPreset] || "This is a voice preview.";
-    const voice = findVoiceForPreset(currentPreset);
-    const style = prosodyFor(currentPreset, transparency);
-    const u = new SpeechSynthesisUtterance(demo);
-    if (voice) u.voice = voice;
-    u.rate = style.rate;
-    u.pitch = style.pitch;
-    u.volume = style.volume;
-    speechSynthesis.cancel();
-    speechSynthesis.speak(u);
-    return;
-  }
-
-  // REAL TTS via Dia
-  try {
-    const r = await fetch(`/api/tts_dia`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ text, preset: currentPreset })
-    });
-    if (!r.ok) throw new Error(`Dia TTS ${r.status}`);
-    const data = await r.json();
-    if (!data.url) throw new Error("No URL from Dia TTS");
-
-    const audio = new Audio(data.url);
-    audio.play().catch(err => console.warn("Audio play failed:", err));
-  } catch (err) {
-    console.warn("Dia TTS failed, fallback to browser TTS:", err);
-    // Fallback: browser TTS
-    const voice = findVoiceForPreset(currentPreset);
-    const style = prosodyFor(currentPreset, transparency);
-    const u = new SpeechSynthesisUtterance(text);
-    if (voice) u.voice = voice;
-    u.rate = style.rate;
-    u.pitch = style.pitch;
-    u.volume = style.volume;
-    speechSynthesis.cancel();
-    speechSynthesis.speak(u);
-  }
-}
-
-
+// TTS removed — responses are text-only. Keep speak() out so UI focuses on textual tone.
 
 // ---------------- Chat ----------------
 async function send() {
@@ -294,8 +102,7 @@ async function send() {
       body: JSON.stringify({
         message: msg,
         transparency,
-        session_id: sessionId,
-        voice_preset: currentPreset
+        session_id: sessionId
       })
     });
 
@@ -310,8 +117,7 @@ async function send() {
     pending.remove();
     addBubble(reply, "ai");
 
-    // Persona voice
-    speak(reply, transparency);
+    // Text-only response (tone controlled by transparency slider)
 
     logEvent("answer_ok", { transparency, preset: currentPreset });
 
