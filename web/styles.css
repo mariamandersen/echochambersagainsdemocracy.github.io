@@ -263,10 +263,26 @@ button:disabled{
   transform: translateY(-1px);
 }
 
-.content { position: relative; }
+/* Make content a positioning context */
+.content {
+  position: relative;
+}
 
+/* Back button: top-right, ABOVE header row */
 .back-button {
   position: absolute;
-  top: 0;
+  top: -2.2rem;   /* lifts it above the header row */
   right: 0;
+
+  padding: 6px 10px;
+  font-size: 0.75rem;
+  line-height: 1;
+
+  border-radius: 999px;
+  border: 1px solid rgba(148, 163, 184, 0.35);
+  background: rgba(31, 41, 55, 0.9);
+  color: var(--ink);
+
+  cursor: pointer;
+  z-index: 20;
 }
