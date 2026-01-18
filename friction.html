@@ -1,0 +1,404 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Frictionless vs. Friction Democracy</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <link rel="stylesheet" href="style.css" />
+  <link rel="stylesheet" href="friction.css" />
+</head>
+<body>
+  <div class="app-shell">
+    <div class="content">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.75rem;gap:0.5rem;">
+        <h1>
+          Frictionless vs. Friction Democracy
+        </h1>
+        <div class="pill">
+          <span>Probe</span> • HCI & Democracy
+        </div>
+      </div>
+      <p class="subtitle" id="subtitle">
+        A guided experiment where the same political question is decided in two different ways:
+        one Frictionless & smooth, one Friction & effortful.
+      </p>
+
+      <div id="screen"></div>
+    </div>
+  </div>
+
+  <script>
+    // ---------------- CONFIG ----------------
+
+    // Frictionless mode micro-questions
+    const FrictionlessQuestions = [
+      {
+        id: 1,
+        text: "Should terminally ill adults be allowed to request assisted dying under strict regulation?"
+      },
+      {
+        id: 2,
+        text: "Should close family members be allowed to influence this decision if the patient can no longer communicate?"
+      },
+      {
+        id: 3,
+        text: "Should doctors be allowed to refuse participation even if the patient qualifies by law?"
+      }
+    ];
+
+    // Main question reused in Friction mode
+    const mainQuestion = "Should Norway allow assisted dying for terminally ill, mentally competent adults under strict regulation?";
+
+    // Perspective cards for Friction mode
+    const perspectives = [
+      {
+        title: "Patient with ALS",
+        role: "Autonomy & dignity",
+        text: "“I want to decide myself how my life ends, before I lose the ability to speak or breathe. For me, that choice is about dignity—not giving up.”"
+      },
+      {
+        title: "Disability rights advocate",
+        role: "Protection from pressure",
+        text: "“If assisted dying is normalised, some disabled people may feel like a burden. Even subtle pressure can make ‘choice’ less free than it looks.”"
+      },
+      {
+        title: "Doctor in public healthcare",
+        role: "Ethics & trust",
+        text: "“My role is to preserve life and relieve suffering. If I help end life, some patients might stop trusting that I am fully on their side.”"
+      }
+    ];
+
+    const FrictionlessTimePerQuestionSeconds = 10;   // purely visual; you still move by clicking
+    const FrictionReadingSeconds = 60;          // “mandatory” reading time
+
+    // ---------------- STATE ----------------
+
+    let state = {
+      screen: "intro", // intro | Frictionless | Friction_read | Friction_vote | summary
+      FrictionlessIndex: 0,
+      FrictionlessAnswers: [], // {questionId, answer, timestamp}
+      FrictionlessStartTime: null,
+      FrictionAnswer: null,
+      FrictionStartTime: null,
+      timers: {
+        barInterval: null,
+        secondsLeft: FrictionReadingSeconds
+      }
+    };
+
+    const screenEl = document.getElementById("screen");
+    const subtitleEl = document.getElementById("subtitle");
+
+    function setState(patch) {
+      state = { ...state, ...patch };
+      render();
+    }
+
+    // ---------------- UI HELPERS ----------------
+
+    function clearTimers() {
+      if (state.timers.barInterval) {
+        clearInterval(state.timers.barInterval);
+      }
+    }
+
+    function render() {
+      clearTimers();
+      if (state.screen === "intro") renderIntro();
+      else if (state.screen === "Frictionless") renderFrictionlessQuestion();
+      else if (state.screen === "Friction_read") renderFrictionRead();
+      else if (state.screen === "Friction_vote") renderFrictionVote();
+      else if (state.screen === "summary") renderSummary();
+    }
+
+    // ---------------- SCREENS ----------------
+
+    function renderIntro() {
+      screenEl.innerHTML = `
+        <div class="card">
+          <div class="mode-tag">
+            <span class="dot Frictionless"></span> Experiment
+          </div>
+          <p class="question-text">
+            You will answer the <span class="highlight-text">same political question</span>
+            in two different ways:
+          </p>
+          <ul class="reflection-list">
+            <li><strong>Frictionless mode</strong>: like an app: quick yes/no, instant feedback, no discussion.</li>
+            <li><strong>Friction mode</strong>: like a citizens’ assembly: mandatory reading, discussion, then a vote.</li>
+          </ul>
+          <p class="small-label" style="margin-top:0.6rem;">
+            This prototype is designed for a <span class="highlight-text">30-minute group session</span>. Use it as a guide; discussion happens in the room, not in the interface.
+          </p>
+          <div class="buttons-row" style="margin-top:1rem;">
+            <button class="primary" onclick="startFrictionlessMode()">
+              <span class="icon"></span>
+              Start Frictionless Mode
+            </button>
+          </div>
+        </div>
+      `;
+    }
+
+    function startFrictionlessMode() {
+      subtitleEl.textContent =
+        "Mode 1: Frictionless Democracy: answer quickly. No discussion yet.";
+      setState({
+        screen: "Frictionless",
+        FrictionlessIndex: 0,
+        FrictionlessAnswers: [],
+        FrictionlessStartTime: performance.now()
+      });
+    }
+
+    function renderFrictionlessQuestion() {
+      const idx = state.FrictionlessIndex;
+      const q = FrictionlessQuestions[idx];
+
+      if (!q) {
+        // Done, go to Friction reading
+        startFrictionReading();
+        return;
+      }
+
+      const total1 = FrictionlessQuestions.length;
+      const questionNumberText = `Question ${idx + 1} of ${total1}`;
+
+      screenEl.innerHTML = `
+        <div class="card">
+          <div class="mode-tag">
+            <span class="dot Frictionless"></span> Mode 1 • Frictionless Democracy
+          </div>
+          <div class="question-counter">${questionNumberText}</div>
+          <div class="timer-bar">
+            <div class="timer-fill" id="FrictionlessTimerFill"></div>
+          </div>
+          <p class="question-text">
+            ${q.text}
+          </p>
+          <p class="small-label">
+            Decide quickly. No discussion. Answers cannot be changed.
+          </p>
+          <div class="buttons-row">
+            <button class="yes" onclick="recordFrictionlessAnswer('YES')">
+              <span class="icon"></span> YES
+            </button>
+            <button class="no" onclick="recordFrictionlessAnswer('NO')">
+              <span class="icon"></span> NO
+            </button>
+          </div>
+        </div>
+      `;
+
+      // Animate timer bar (purely visual)
+      const fill = document.getElementById("FrictionlessTimerFill");
+      let elapsed = 0;
+      const total2 = FrictionlessTimePerQuestionSeconds;
+      state.timers.barInterval = setInterval(() => {
+        elapsed += 1;
+        const t = Math.min(elapsed / total2, 1);
+        const scale = 1 - t;
+        fill.style.transform = `scaleX(${scale})`;
+        if (elapsed >= total2) {
+          clearInterval(state.timers.barInterval);
+        }
+      }, 1000);
+    }
+
+    function recordFrictionlessAnswer(answer) {
+      const currentQuestion = FrictionlessQuestions[state.FrictionlessIndex];
+      const timestamp = new Date().toISOString();
+
+      const updatedAnswers = [
+        ...state.FrictionlessAnswers,
+        {
+          questionId: currentQuestion.id,
+          text: currentQuestion.text,
+          answer,
+          timestamp
+        }
+      ];
+
+      setState({
+        FrictionlessAnswers: updatedAnswers,
+        FrictionlessIndex: state.FrictionlessIndex + 1
+      });
+    }
+
+    function startFrictionReading() {
+      subtitleEl.textContent =
+        "Mode 2: Friction Democracy: read perspectives, then discuss and vote.";
+      setState({
+        screen: "Friction_read",
+        FrictionStartTime: performance.now(),
+        timers: {
+          barInterval: null,
+          secondsLeft: FrictionReadingSeconds
+        }
+      });
+    }
+
+    function renderFrictionRead() {
+      const secondsLeft = state.timers.secondsLeft;
+
+      screenEl.innerHTML = `
+        <div class="card">
+          <div class="mode-tag">
+            <span class="dot Friction"></span> Mode 2 • Friction Democracy
+          </div>
+          <p class="small-label">
+            First, everyone reads at least two perspectives in silence.
+          </p>
+          <p class="question-text">
+            Main question: <span class="highlight-text">${mainQuestion}</span>
+          </p>
+          <div class="perspectives">
+            ${perspectives
+              .map(
+                (p) => `
+              <div class="perspective-card">
+                <div class="badge">${p.role}</div>
+                <div class="perspective-title">${p.title}</div>
+                <div>${p.text}</div>
+              </div>
+            `
+              )
+              .join("")}
+          </div>
+          <p class="small-label" style="margin-top:0.75rem;">
+            Reading time left: <span id="readingSeconds">${secondsLeft}</span> seconds.
+          </p>
+          <div class="buttons-row">
+            <button class="primary" id="continueFrictionBtn" disabled>
+              <span class="icon"></span>
+              Continue to vote when time is up
+            </button>
+          </div>
+        </div>
+      `;
+
+      const btn = document.getElementById("continueFrictionBtn");
+      const secondsEl = document.getElementById("readingSeconds");
+
+      let secs = secondsLeft;
+      secondsEl.textContent = secs;
+
+      state.timers.barInterval = setInterval(() => {
+        secs -= 1;
+        state.timers.secondsLeft = secs;
+        secondsEl.textContent = secs;
+        if (secs <= 0) {
+          clearInterval(state.timers.barInterval);
+          btn.disabled = false;
+          btn.innerHTML = 'Continue to vote';
+        }
+      }, 1000);
+
+      btn.addEventListener("click", () => {
+        setState({ screen: "Friction_vote" });
+      });
+    }
+
+    function renderFrictionVote() {
+      screenEl.innerHTML = `
+        <div class="card">
+          <div class="mode-tag">
+            <span class="dot Friction"></span> Mode 2 • Friction Democracy
+          </div>
+          <p class="question-text">
+            Now you have discussed as a group. Vote <strong>secretly</strong> in the room (paper, hands, etc.),
+            then record the final group decision here:
+          </p>
+          <p class="question-text" style="margin-top:0.5rem;">
+            <span class="highlight-text">${mainQuestion}</span>
+          </p>
+          <p class="small-label">
+            This button reflects the <strong>group’s final decision</strong> after discussion, not individual votes.
+          </p>
+          <div class="buttons-row">
+            <button class="yes" onclick="recordFrictionAnswer('YES')">
+              <span class="icon"></span> Group decision: YES
+            </button>
+            <button class="no" onclick="recordFrictionAnswer('NO')">
+              <span class="icon"></span> Group decision: NO
+            </button>
+          </div>
+        </div>
+      `;
+    }
+
+    function recordFrictionAnswer(answer) {
+      setState({
+        FrictionAnswer: {
+          answer,
+          timestamp: new Date().toISOString()
+        },
+        screen: "summary"
+      });
+    }
+
+    function renderSummary() {
+      const firstFrictionless = state.FrictionlessAnswers.find((a) => a.questionId === FrictionlessQuestions[0].id);
+      const FrictionlessMainAnswer = firstFrictionless ? firstFrictionless.answer : "N/A";
+      const FrictionAnswer = state.FrictionAnswer ? state.FrictionAnswer.answer : "N/A";
+      const changed = FrictionlessMainAnswer !== FrictionAnswer && FrictionAnswer !== "N/A" && FrictionlessMainAnswer !== "N/A";
+
+      subtitleEl.textContent =
+        "Summary: Compare Frictionless vs. Friction decisions and use this as a prompt for discussion.";
+
+      screenEl.innerHTML = `
+        <div class="card">
+          <div class="mode-tag">
+            <span class="dot Frictionless"></span><span class="dot Friction"></span> Comparison
+          </div>
+          <p class="question-text">
+            Same question, two processes:
+          </p>
+          <p class="question-text" style="font-size:0.95rem;margin-top:0.2rem;">
+            <span class="highlight-text">${mainQuestion}</span>
+          </p>
+          <div class="summary-grid">
+            <div class="summary-box">
+              <div class="summary-label">Mode 1 • Frictionless Democracy</div>
+              <div class="summary-value">
+                First answer: <strong>${FrictionlessMainAnswer}</strong>
+              </div>
+              <p class="small-label" style="margin-top:0.3rem;">
+                Quick yes/no, no context, no discussion.
+              </p>
+            </div>
+            <div class="summary-box">
+              <div class="summary-label">Mode 2 • Friction Democracy</div>
+              <div class="summary-value ${changed ? "changed" : ""}">
+                Group decision: <strong>${FrictionAnswer}</strong>
+                ${changed ? "<br><span class='small-label'>Changed from Frictionless mode ✺</span>" : ""}
+              </div>
+              <p class="small-label" style="margin-top:0.3rem;">
+                Reading, discussion, then a collective vote.
+              </p>
+            </div>
+          </div>
+          <div class="summary-box" style="margin-top:0.8rem;">
+            <div class="summary-label">Reflection prompts (discuss aloud)</div>
+            <ul class="reflection-list">
+              <li>Which process <strong>felt better</strong> – and which felt more <strong>legitimate</strong>?</li>
+              <li>Did anyone change their mind between frictionless and friction mode? Why?</li>
+              <li>Should democratic choices ever be as frictionless as our apps and feeds?</li>
+              <li>Is friction here a <strong>design flaw</strong> – or a <strong>democratic feature</strong>?</li>
+            </ul>
+          </div>
+          <div class="buttons-row" style="margin-top:0.7rem;">
+            <button onclick="location.reload()">
+              <span class="icon"></span>
+              Restart for another group
+            </button>
+          </div>
+        </div>
+      `;
+    }
+
+    // Initial render
+    render();
+  </script>
+</body>
+</html>
