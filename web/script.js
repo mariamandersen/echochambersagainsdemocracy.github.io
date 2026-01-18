@@ -36,8 +36,26 @@ async function logEvent(event, payload = {}) {
 // ----- Bias UI (solid color background via CSS var) -----
 function updateBiasUI(v) {
   const t = Math.max(0, Math.min(100, Number(v) || 50));
-  const hue = Math.round((t / 100) * 120); // 0=red -> 120=green
+  const n = t / 100;
+
+  // Hue: 0 = red (manipulative) → 180 = blue/green (open)
+  const hue = Math.round(n * 180);
+
+  // Saturation: low in the middle (neutral), high at extremes
+  // 15% at center, ~90% at extremes
+  const sat = Math.round(15 + 75 * (Math.abs(n - 0.5) * 2));
+
+  // Lightness: slightly darker at extremes to keep contrast
+  const light = Math.round(55 - 8 * (Math.abs(n - 0.5) * 2));
+
+  // Glow intensity roughly proportional to saturation
+  const intensity = +(0.18 + 0.22 * ((sat - 15) / 75)).toFixed(3);
+
   document.documentElement.style.setProperty('--bias-hue', hue);
+  document.documentElement.style.setProperty('--bias-sat', sat + '%');
+  document.documentElement.style.setProperty('--bias-light', light + '%');
+  document.documentElement.style.setProperty('--bias-intensity', intensity);
+
   const lbl = document.getElementById('toneLabel');
   if (lbl) {
     if (t < 33) {
