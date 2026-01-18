@@ -237,7 +237,8 @@ button:disabled{
   }
   
   .next-button, .back-button {
-    position: absolute;
+    display: flex;
+    justify-content: flex-end;
     top: 16px;
     padding: 8px 12px;
     border-radius: 8px;
